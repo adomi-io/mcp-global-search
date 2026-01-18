@@ -6,8 +6,6 @@ Use this MCP to help AI agents reliably reference documents the user explicitly 
 
 The server supports HTTP transport by default (good for Docker) and can also run over stdio.
 
----
-
 ## Highlights
 
 - 📚 Purpose‑built for “user memory” — search only what the user loaded
@@ -16,15 +14,11 @@ The server supports HTTP transport by default (good for Docker) and can also run
 - 📂 File fetch helper to retrieve exact source text for grounding
 - 🚦 Simple to run standalone or via Docker Compose
 
----
-
 ## What you can do
 
 - List available Meilisearch indexes that represent the user’s loaded documents
 - Search an index (or run multiple searches at once)
 - Fetch the exact file contents referenced by a search hit
-
----
 
 ## Getting started
 
@@ -68,8 +62,6 @@ By default, it serves MCP over HTTP on `0.0.0.0:8000`. To use stdio instead, set
 
 Required environment variables must be present in your shell (see the table below).
 
----
-
 ## How to connect (MCP transports)
 
 This server uses the FastMCP framework and supports two transports:
@@ -88,8 +80,6 @@ MCP_TRANSPORT=stdio python3 src/mcp_server/meili_mcp.py
 ```
 
 Your MCP‑capable client/tooling can connect to the HTTP endpoint or spawn the process for stdio depending on its capabilities.
-
----
 
 ## Tools exposed by the MCP
 
@@ -135,8 +125,6 @@ Fetch the exact source bytes/text for a file under `FILES_ROOT` (used to ground 
 - Blocks path traversal — the resolved path must remain under `FILES_ROOT`
 - If `MEILISEARCH_ALLOWED_INDEXES` is set, only files whose first path segment matches an allowed index are accessible (e.g., with `ALLOWED=["nuxt","docs"]`, `nuxt/…` is allowed).
 
----
-
 ## Environment variables (quick reference)
 
 | Variable | Default | Notes |
@@ -154,15 +142,11 @@ When running with the provided `docker-compose.yml`:
 - `MEILISEARCH_HOST` is set to `http://meilisearch:7700`
 - You must set `MEILISEARCH_MASTER_KEY` in your shell (export) before starting compose
 
----
-
 ## Typical data flow
 
 1) Documents are downloaded into `./output` by `downloader_web`
 2) `file_loader` reads from `./output` and indexes into Meilisearch
 3) This MCP lists/searches those indexes and can read exact files from `./output` via `get_document_file()`
-
----
 
 ## Updating
 
@@ -172,8 +156,6 @@ If you change your allow‑list or other env vars, restart the service:
 docker compose restart mcp_server
 ```
 
----
-
 ## Troubleshooting
 
 - Missing/invalid master key: the server fails fast with `MEILISEARCH_MASTER_KEY is required but not set`
@@ -181,11 +163,9 @@ docker compose restart mcp_server
 - File fetch denied: when allow‑list is active, only files whose first path segment matches an allowed index are accessible
 - Connection from client fails: confirm whether your client supports MCP over HTTP or stdio and configure accordingly
 
----
-
 ## Related services in this repo
 
-- `downloader_web`: fetches docs to `./output` (see `src/downloader_web`)
-- `file_loader`: watches/loads files from `./output` into Meilisearch (see `src/file_loader`)
+- [Downloader - Web](../downloader_web/README.md): fetches docs to `./output`
+- [File Loader](../file_loader/README.md): watches/loads files from `./output` into Meilisearch
 
 This MCP sits on top of those services to provide a clean, safe interface to the AI.

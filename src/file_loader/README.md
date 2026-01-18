@@ -16,7 +16,6 @@ This service is typically paired with `downloader_web`, which populates `./outpu
 - Minimal, clear logs; resilient upsert with retries
 - Uses Meilisearch master key for authenticated API calls
 
----
 
 ## How indexing is organized
 
@@ -27,7 +26,6 @@ This service is typically paired with `downloader_web`, which populates `./outpu
   - Files placed directly under `DOCS_DIR` (no top-level folder) are skipped.
 - Document IDs are stable SHA1 hashes of each file’s relative path.
 
----
 
 ## Getting started
 
@@ -61,7 +59,6 @@ python3 src/file_loader/loader.py
 
 Environment variables from your shell will be used (see the table below). There is no HTTP server exposed by `file_loader`.
 
----
 
 ## Environment variables (quick reference)
 
@@ -80,7 +77,6 @@ When running with the provided `docker-compose.yml`, volumes and envs are set fo
 - `./output` → `/volumes/output`
 - `./data-sources.yml` (read-only) → `/config/download.yml`
 
----
 
 ## File formats and loader types
 
@@ -96,7 +92,6 @@ When running with the provided `docker-compose.yml`, volumes and envs are set fo
 
 Note: If `MEILISEARCH_ALLOWED_EXTS` is set, only files with those extensions are considered. Hidden files and large files over `MEILISEARCH_MAX_BYTES` are skipped.
 
----
 
 ## Optional loader rules (via CONFIG_FILE)
 
@@ -117,7 +112,6 @@ Notes:
 - If `type` is omitted, the loader will infer from file extension (`.md` → `frontmatter`, `.json` → `json`, etc.).
 - If `match.glob` is provided, the rule is applied only to filenames matching that pattern within the specified `path`.
 
----
 
 ## Document shape
 
@@ -137,7 +131,6 @@ Each indexed document contains metadata and (depending on loader type) content a
 
 For YAML, JSON, and CSV, the parsed structure is placed in `data`. Plain text-like files will typically only include `content`.
 
----
 
 ## Typical data flow
 
@@ -149,7 +142,6 @@ For YAML, JSON, and CSV, the parsed structure is placed in `data`. Plain text-li
    - Create or Modify → upsert document
    - Delete → remove document by ID
 
----
 
 ## Updating and troubleshooting
 
@@ -164,11 +156,10 @@ For YAML, JSON, and CSV, the parsed structure is placed in `data`. Plain text-li
   - Confirm the file’s extension is in `MEILISEARCH_ALLOWED_EXTS` and its size is under `MEILISEARCH_MAX_BYTES`.
   - Files directly under `./output` (no top-level folder) are intentionally skipped.
 
----
 
 ## Related services in this repo
 
-- `downloader_web`: fetches and refreshes files into `./output` (see `src/downloader_web`)
-- `mcp_server`: queries Meilisearch over the indexed files (see `src/mcp_server`)
+- [Downloader - Web](../downloader_web/README.md): fetches and refreshes files into `./output`
+- [MCP Server](../mcp_server/README.md): queries Meilisearch over the indexed files
 
 This loader keeps Meilisearch synchronized with files produced by the downloader.

@@ -20,7 +20,6 @@
  - Keep a local folder of docs/files up to date for downstream tools
  - Trigger re-downloads via an HTTP call
 
- ---
 
  ## Getting started
 
@@ -44,7 +43,6 @@
 
  Environment variables you set in your shell will be respected (see the table below). By default the server binds to port `8080`.
 
- ---
 
  ## Open the application
 
@@ -76,7 +74,6 @@
 
  The service returns `503` from `/health` until the initial download completes and the `.ready` marker exists.
 
- ---
 
  ## Configure sources
 
@@ -134,7 +131,6 @@
    - nitro/pnpm-lock.yaml
  ```
 
- ---
 
  ## Environment variables (quick reference)
 
@@ -149,9 +145,8 @@
  - `./output` → `/volumes/output`
  - `./data-sources.yml` (read-only) → `/config/download.yml`
 
- ---
 
- ## Typical data flow
+## Typical data flow
 
  1) Service starts and reads `CONFIG_FILE`
  2) Each source is downloaded into a staging directory
@@ -159,7 +154,6 @@
  4) Dependent services (e.g., a file loader/indexer) wait for `/health` to turn healthy, then process files from `DOCS_ROOT`
  5) You can `POST /refresh` to perform steps 2–3 again without restarting
 
- ---
 
  ## Updating
 
@@ -175,7 +169,6 @@
  docker compose restart downloader_web
  ```
 
- ---
 
  ## Troubleshooting
 
@@ -184,11 +177,10 @@
  - HTTP source with auth: set an environment variable and reference it in `headers` using `$VARNAME`.
  - Git subpath not found: ensure `subpath` exists at the specified `ref`.
 
- ---
 
- ## Related services in this repo
+## Related services in this repo
 
- - `file_loader`: watches/loads files from `./output` into Meilisearch (see `src/file_loader`)
- - `mcp_server`: a small MCP server that queries Meilisearch over the indexed files (see `src/mcp_server`)
+ - [File Loader](../file_loader/README.md): watches/loads files from `./output` into Meilisearch
+ - [MCP Server](../mcp_server/README.md): a small MCP server that queries Meilisearch over the indexed files
 
  This downloader keeps `./output` up to date so those services see fresh content.

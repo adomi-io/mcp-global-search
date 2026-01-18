@@ -93,11 +93,14 @@ First run will download sources, write into `./output`, index them, and then exp
 
 # Services overview
 
-- 📥 downloader_web — fetches files into `./output` ([src/downloader_web/README.md](src/downloader_web/README.md))
+## [Downloader - Web](src/downloader_web/README.md)
+Fetches files from the internet (HTTP, Git, etc.) into `./output`.
 
-- 📂 file_loader — indexes files from `./output` into Meilisearch ([src/file_loader/README.md](src/file_loader/README.md))
+## [File Loader](src/file_loader/README.md)
+Indexes files from `./output` into Meilisearch.
 
-- 🔌 mcp_server — exposes your indexes to AI tooling via MCP ([src/mcp_server/README.md](src/mcp_server/README.md))
+## [MCP Server](src/mcp_server/README.md)
+Exposes your indexes to AI tooling via MCP.
 
 Compose file: `docker-compose.yml` ties everything together.
 
