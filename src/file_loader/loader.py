@@ -17,7 +17,6 @@ import yaml
 
 MEILISEARCH_HOST = os.environ.get("MEILISEARCH_HOST", "http://meilisearch:7700").rstrip("/")
 DOCS_DIR = Path(os.environ.get("DOCS_DIR", "/volumes/output"))
-MEILISEARCH_INDEX = os.environ.get("MEILISEARCH_INDEX", "docs")
 MEILISEARCH_MASTER_KEY = os.environ.get("MEILISEARCH_MASTER_KEY", "").strip()
 BATCH_SIZE = int(os.environ.get("MEILISEARCH_BATCH_SIZE", "200"))
 MAX_BYTES = int(os.environ.get("MEILISEARCH_MAX_BYTES", str(2 * 1024 * 1024)))
@@ -74,7 +73,6 @@ def load_loader_rules() -> list[dict]:
         type: optional loader type (frontmatter, csv, json, yaml, etc.)
         match:
           glob: optional glob against filename (e.g., "*.md")
-        processors: optional list of processors with optional match
     """
     cfg = _load_yaml_file(CONFIG_PATH)
     loaders = cfg.get("loaders") or []
@@ -104,37 +102,10 @@ def load_loader_rules() -> list[dict]:
                 if not glob_pat:
                     glob_pat = None
 
-        processors = item.get("processors") or []
-
-        # normalize processors
-        norm_procs = []
-
-        if isinstance(processors, list):
-            for p in processors:
-                if not isinstance(p, dict):
-                    continue
-                ptype = str(p.get("type", "")).strip().lower() or "noop"
-                pmatch = p.get("match") or {}
-                pglob = None
-
-                if isinstance(pmatch, dict):
-                    pglob = pmatch.get("glob")
-
-                    if pglob is not None:
-                        pglob = str(pglob).strip() or None
-
-                params = {
-                    k: v for k, v in p.items()
-                    if k not in ("type", "match")
-                }
-
-                norm_procs.append({"type": ptype, "glob": pglob, "params": params})
-
         norm.append({
             "path": path.strip("/"),
             "type": ltype,
             "glob": glob_pat,
-            "processors": norm_procs,
         })
     if norm:
         logger.info("Loaded %d loader rule(s) from %s", len(norm), CONFIG_PATH)
@@ -560,9 +531,8 @@ class Handler(FileSystemEventHandler):
 
 def main():
     logger.info(
-        "Loader starting; host=%s base_index=%s docs_dir=%s (multi-index by folder)",
+        "Loader starting; host=%s docs_dir=%s (multi-index by top-level folder)",
         MEILISEARCH_HOST,
-        MEILISEARCH_INDEX,
         DOCS_DIR,
     )
 
@@ -572,8 +542,8 @@ def main():
     if LOADER_RULES:
         for r in LOADER_RULES:
             logger.info(
-                "Rule: path=%s type=%s glob=%s processors=%d",
-                r.get("path"), r.get("type"), r.get("glob"), len(r.get("processors") or []),
+                "Rule: path=%s type=%s glob=%s",
+                r.get("path"), r.get("type"), r.get("glob"),
             )
     else:
         logger.info("No loader rules configured; using default loader for all files")

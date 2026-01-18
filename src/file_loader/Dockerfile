@@ -3,8 +3,7 @@ FROM python:3.11-alpine
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     DOCS_DIR=/volumes/output \
-    MEILISEARCH_HOST=http://meilisearch:7700 \
-    MEILISEARCH_INDEX=docs
+    MEILISEARCH_HOST=http://meilisearch:7700
 
 RUN set -eux; \
     apk add --no-cache ca-certificates bash curl; \

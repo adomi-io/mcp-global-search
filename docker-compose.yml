@@ -67,7 +67,6 @@ services:
     environment:
       - MEILISEARCH_HOST=http://meilisearch:7700
       - DOCS_DIR=/volumes/output
-      - MEILISEARCH_INDEX=docs
       - MEILISEARCH_MASTER_KEY=${MEILISEARCH_MASTER_KEY}
       - CONFIG_FILE=/config/download.yml
     volumes:
