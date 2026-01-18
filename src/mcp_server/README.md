@@ -1,4 +1,4 @@
-# 🔌 Meilisearch MCP Server (User Documents / Memory)
+# Meilisearch MCP Server (User Documents / Memory)
 
 A minimal, container‑friendly Model Context Protocol (MCP) server that exposes your user‑loaded documents in Meilisearch as high‑signal “memory.”
 
@@ -24,6 +24,7 @@ The server supports HTTP transport by default (good for Docker) and can also run
 
 Most users should run this server via the provided Docker Compose setup in the project root. You’ll also need a running Meilisearch with a master key.
 
+> [!WARNING]
 > This application is designed to run via Docker. Install Docker Desktop if you’re on Windows or macOS.
 >
 > https://www.docker.com/products/docker-desktop/
@@ -137,16 +138,17 @@ Fetch the exact source bytes/text for a file under `FILES_ROOT` (used to ground 
 | `MCP_HOST` | `0.0.0.0` | HTTP bind host when `MCP_TRANSPORT=http` |
 | `MCP_PORT` | `8000` | HTTP bind port when `MCP_TRANSPORT=http` |
 
-When running with the provided `docker-compose.yml`:
-- `./output` is mounted read‑only at `/volumes/output`
-- `MEILISEARCH_HOST` is set to `http://meilisearch:7700`
-- You must set `MEILISEARCH_MASTER_KEY` in your shell (export) before starting compose
+> [!TIP]
+> When running with the provided `docker-compose.yml`:
+> - `./output` is mounted read‑only at `/volumes/output`
+> - `MEILISEARCH_HOST` is set to `http://meilisearch:7700`
+> - You must set `MEILISEARCH_MASTER_KEY` in your shell (export) before starting compose
 
 ## Typical data flow
 
-1) Documents are downloaded into `./output` by `downloader_web`
-2) `file_loader` reads from `./output` and indexes into Meilisearch
-3) This MCP lists/searches those indexes and can read exact files from `./output` via `get_document_file()`
+- Documents are downloaded into `./output` by `downloader_web`
+- `file_loader` reads from `./output` and indexes into Meilisearch
+- This MCP lists/searches those indexes and can read exact files from `./output` via `get_document_file()`
 
 ## Updating
 

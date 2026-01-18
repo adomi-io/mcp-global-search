@@ -31,6 +31,7 @@ This service is typically paired with `downloader_web`, which populates `./outpu
 
 This repository includes a Docker Compose setup that runs Meilisearch, `downloader_web`, and `file_loader`. Most users should start there.
 
+> [!WARNING]
 > This application is designed to run via Docker. Install Docker Desktop if you are on Windows or macOS.
 >
 > https://www.docker.com/products/docker-desktop/
@@ -39,9 +40,9 @@ This repository includes a Docker Compose setup that runs Meilisearch, `download
 
 The root `docker-compose.yml` defines a `file_loader` service. Typical flow:
 
-1) `downloader_web` fetches sources into `./output`
-2) `file_loader` waits for Meilisearch to be healthy and then indexes files from `./output`
-3) As files change, `file_loader` updates Meilisearch automatically
+- `downloader_web` fetches sources into `./output`
+- `file_loader` waits for Meilisearch to be healthy and then indexes files from `./output`
+- As files change, `file_loader` updates Meilisearch automatically
 
 Bring the stack up:
 
@@ -73,7 +74,8 @@ Environment variables from your shell will be used (see the table below). There 
 | `CONFIG_FILE` | `/config/download.yml` | YAML config used for optional loader rules (see below) |
 | `LOG_LEVEL` | `INFO` | Python logging level (for example, DEBUG, INFO, WARNING) |
 
-When running with the provided `docker-compose.yml`, volumes and envs are set for you:
+> [!TIP]
+> When running with the provided `docker-compose.yml`, volumes and envs are set for you:
 - `./output` → `/volumes/output`
 - `./data-sources.yml` (read-only) → `/config/download.yml`
 
@@ -134,13 +136,13 @@ For YAML, JSON, and CSV, the parsed structure is placed in `data`. Plain text-li
 
 ## Typical data flow
 
-1) Service starts and reads `CONFIG_FILE` (for optional loader rules)
-2) Waits for Meilisearch to become healthy
-3) Ensures target indexes are available as files are discovered
-4) Performs an initial full load from `DOCS_DIR` (batched upserts)
-5) Starts a filesystem watcher; on changes:
-   - Create or Modify → upsert document
-   - Delete → remove document by ID
+- Service starts and reads `CONFIG_FILE` (for optional loader rules)
+- Waits for Meilisearch to become healthy
+- Ensures target indexes are available as files are discovered
+- Performs an initial full load from `DOCS_DIR` (batched upserts)
+- Starts a filesystem watcher; on changes:
+  - Create or Modify → upsert document
+  - Delete → remove document by ID
 
 
 ## Updating and troubleshooting

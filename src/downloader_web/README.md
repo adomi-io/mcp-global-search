@@ -1,4 +1,4 @@
- # 📥 Downloader Web
+ # Downloader - Web
 
  A tiny, container-friendly service that fetches docs and files from multiple sources (Git and HTTP) and writes them to a target folder. It’s typically used to populate a shared `output/` directory that other services (like a file indexer or search) can consume.
 
@@ -25,6 +25,7 @@
 
  This repository includes a Docker Compose setup that runs the downloader and related services. Most users should start there.
 
+ > [!WARNING]
  > This application is designed to run via Docker. Install Docker Desktop if you’re on Windows or macOS.
  >
  > https://www.docker.com/products/docker-desktop/
@@ -113,7 +114,7 @@
      # exclude: ["*.tmp"]
  ```
 
- Notes:
+Notes on schema and filtering:
  - `dest` is relative to `DOCS_ROOT` and will be created if missing.
  - HTTP `headers` values beginning with `$` will be resolved from environment variables.
  - Git `ref` is optional; if omitted, the default branch will be used.
@@ -141,18 +142,19 @@
  | `CONFIG_FILE` | `/config/download.yml` | Path to the YAML sources config inside the container |
  | `LOG_LEVEL` | `INFO` | Python logging level (e.g., DEBUG, INFO, WARNING) |
 
- When running with the provided `docker-compose.yml`, volumes and envs are set for you:
- - `./output` → `/volumes/output`
- - `./data-sources.yml` (read-only) → `/config/download.yml`
+ > [!TIP]
+ > When running with the provided `docker-compose.yml`, volumes and envs are set for you:
+  - `./output` → `/volumes/output`
+  - `./data-sources.yml` (read-only) → `/config/download.yml`
 
 
 ## Typical data flow
 
- 1) Service starts and reads `CONFIG_FILE`
- 2) Each source is downloaded into a staging directory
- 3) The contents of staging replace everything in `DOCS_ROOT` (a `.ready` file is written)
- 4) Dependent services (e.g., a file loader/indexer) wait for `/health` to turn healthy, then process files from `DOCS_ROOT`
- 5) You can `POST /refresh` to perform steps 2–3 again without restarting
+- Service starts and reads `CONFIG_FILE`
+- Each source is downloaded into a staging directory
+- The contents of staging replace everything in `DOCS_ROOT` (a `.ready` file is written)
+- Dependent services (for example, a file loader/indexer) wait for `/health` to turn healthy, then process files from `DOCS_ROOT`
+- You can `POST /refresh` to perform the download/swap again without restarting
 
 
  ## Updating
@@ -180,7 +182,7 @@
 
 ## Related services in this repo
 
- - [File Loader](../file_loader/README.md): watches/loads files from `./output` into Meilisearch
- - [MCP Server](../mcp_server/README.md): a small MCP server that queries Meilisearch over the indexed files
+- [File Loader](../file_loader/README.md): watches/loads files from `./output` into Meilisearch
+- [MCP Server](../mcp_server/README.md): a small MCP server that queries Meilisearch over the indexed files
 
- This downloader keeps `./output` up to date so those services see fresh content.
+This downloader keeps `./output` up to date so those services see fresh content.

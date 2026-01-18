@@ -91,6 +91,7 @@ def load_loader_rules() -> list[dict]:
         if not path:
             logger.warning("loaders[%d] missing 'path'", i)
             continue
+
         ltype = (item.get("type") or "").strip().lower() or None
         match = item.get("match") or {}
         glob_pat = None
