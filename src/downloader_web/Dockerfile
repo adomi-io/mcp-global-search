@@ -3,7 +3,7 @@ FROM python:3.11-alpine
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     DOCS_ROOT=/volumes/output \
-    DOWNLOAD_CONFIG=/config/download.yml \
+    CONFIG_FILE=/config/download.yml \
     PORT=8080
 
 RUN set -eux; \

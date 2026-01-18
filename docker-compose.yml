@@ -17,14 +17,14 @@ services:
 
   meilisearch:
     image: getmeili/meilisearch:v1.7
-    user: "${UID:-1000}:${GID:-1000}"
+#    user: "${UID:-1000}:${GID:-1000}"
     environment:
       - MEILI_HTTP_ADDR=0.0.0.0:7700
       - MEILI_NO_ANALYTICS=true
       - MEILI_ENV=development
       - MEILI_MASTER_KEY=${MEILISEARCH_MASTER_KEY}
-    volumes:
-      - ./config/meilisearch:/meili_data
+#    volumes:
+#      - ./config/meilisearch:/meili_data
     ports:
       - "7700:7700"
     healthcheck:
@@ -42,7 +42,7 @@ services:
       dockerfile: Dockerfile
     user: "${UID:-1000}:${GID:-1000}"
     environment:
-      - DOWNLOAD_CONFIG=/config/download.yml
+      - CONFIG_FILE=/config/download.yml
       - DOCS_ROOT=/volumes/output
     volumes:
       - ./output:/volumes/output
@@ -69,7 +69,7 @@ services:
       - DOCS_DIR=/volumes/output
       - MEILISEARCH_INDEX=docs
       - MEILISEARCH_MASTER_KEY=${MEILISEARCH_MASTER_KEY}
-      - DOWNLOAD_CONFIG=/config/download.yml
+      - CONFIG_FILE=/config/download.yml
     volumes:
       - ./output:/volumes/output
       - ./data-sources.yml:/config/download.yml:ro

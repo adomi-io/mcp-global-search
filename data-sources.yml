@@ -8,6 +8,8 @@ sources:
     repo: https://github.com/nitrojs/nitro.git
     subpath: docs
     dest: nitro
+    exclude:
+      - "pnpm-lock.yaml"
 
   - type: git
     repo: https://github.com/nuxt/ui.git

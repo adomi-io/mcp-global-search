@@ -2,6 +2,7 @@
 import os
 import time
 import json
+from datetime import datetime, date
 import hashlib
 import logging
 import csv
@@ -20,7 +21,7 @@ MEILISEARCH_INDEX = os.environ.get("MEILISEARCH_INDEX", "docs")
 MEILISEARCH_MASTER_KEY = os.environ.get("MEILISEARCH_MASTER_KEY", "").strip()
 BATCH_SIZE = int(os.environ.get("MEILISEARCH_BATCH_SIZE", "200"))
 MAX_BYTES = int(os.environ.get("MEILISEARCH_MAX_BYTES", str(2 * 1024 * 1024)))
-CONFIG_PATH = Path(os.environ.get("DOWNLOAD_CONFIG", "/config/download.yml"))
+CONFIG_PATH = Path(os.environ.get("CONFIG_FILE", "/config/download.yml"))
 
 ALLOWED_EXTS = set(
     e.strip().lower()
@@ -179,33 +180,6 @@ def infer_type_from_ext(ext: str) -> str | None:
     return None
 
 
-def apply_processors(doc: dict, rule: dict) -> dict:
-    filename = doc.get("filename", "")
-    processors = rule.get("processors") or []
-
-    for proc in processors:
-        g = proc.get("glob")
-        if g and not fnmatch(filename, g):
-            continue
-
-        ptype = proc.get("type") or "noop"
-        params = proc.get("params") or {}
-
-        try:
-            if ptype == "noop":
-                pass
-            elif ptype == "add_fields":
-                if isinstance(params, dict):
-                    for k, v in params.items():
-                        if k not in ("type", "glob"):
-                            doc[k] = v
-            else:
-                logger.debug("Unknown processor '%s' – skipping", ptype)
-        except Exception as e:
-            logger.warning("Processor '%s' failed on %s: %s", ptype, filename, e)
-    return doc
-
-
 def parse_frontmatter(text: str) -> tuple[dict, str]:
     starts_unix = text.startswith("---\n")
     starts_win = text.startswith("---\r\n")
@@ -307,6 +281,48 @@ def ensure_index(uid: str):
 def doc_id_for(rel_path: str) -> str:
     return hashlib.sha1(rel_path.encode("utf-8")).hexdigest()
 
+def load_frontmatter(base_doc: dict, content: str, *, rel: str, path: Path) -> dict:
+    fm, body = parse_frontmatter(content)
+    base_doc["data"] = fm
+    base_doc["content"] = body
+    return base_doc
+
+
+def load_yaml(base_doc: dict, content: str, *, rel: str, path: Path) -> dict:
+    try:
+        base_doc["data"] = yaml.safe_load(content)
+    except Exception as e:
+        logger.warning("YAML parse failed for %s: %s", rel, e)
+    return base_doc
+
+
+def load_json(base_doc: dict, content: str, *, rel: str, path: Path) -> dict:
+    try:
+        base_doc["data"] = json.loads(content)
+    except Exception as e:
+        logger.warning("JSON parse failed for %s: %s", rel, e)
+    return base_doc
+
+
+def load_csv(base_doc: dict, content: str, *, rel: str, path: Path) -> dict:
+    try:
+        rows: list[dict] = []
+        with path.open("r", encoding="utf-8", errors="replace", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                rows.append(row)
+        base_doc["data"] = rows
+    except Exception as e:
+        logger.warning("CSV parse failed for %s: %s", rel, e)
+    return base_doc
+
+
+LOADERS: dict[str, callable] = {
+    "frontmatter": load_frontmatter,
+    "yaml": load_yaml,
+    "json": load_json,
+    "csv": load_csv,
+}
 
 def read_doc(path: Path):
     try:
@@ -327,6 +343,7 @@ def read_doc(path: Path):
             return None
 
         content = path.read_text(encoding="utf-8", errors="replace")
+
         rel = str(path.relative_to(DOCS_DIR)).replace("\\", "/")
 
         base_doc = {
@@ -339,63 +356,28 @@ def read_doc(path: Path):
         }
 
         # Determine loader rule and type
-        rule = choose_rule_for(
-            rel,
-            path.name
-        )
+        rule = choose_rule_for(rel, path.name)
+        ltype = (rule or {}).get("type") or infer_type_from_ext(ext)
 
-        ltype = None
-
-        if rule and rule.get("type"):
-            ltype = rule.get("type")
-        else:
-            ltype = infer_type_from_ext(ext)
-
-        # If no special loader or ltype explicitly unknown, return base doc
+        # If no special loader or explicitly unknown, return base doc
         if not ltype:
             return base_doc
 
-        # Apply loader-specific parsing/enrichment
-        if ltype == "frontmatter":
-            fm, body = parse_frontmatter(content)
-            base_doc["frontmatter"] = fm
-            base_doc["body"] = body
-        elif ltype == "yaml":
-            try:
-                base_doc["yaml"] = yaml.safe_load(content)
-            except Exception as e:
-                logger.warning("YAML parse failed for %s: %s", rel, e)
-        elif ltype == "json":
-            try:
-                base_doc["json"] = json.loads(content)
-            except Exception as e:
-                logger.warning("JSON parse failed for %s: %s", rel, e)
-        elif ltype == "csv":
-            try:
-                # Read CSV into list of dicts
-                rows = []
+        loader = LOADERS.get(ltype)
 
-                with path.open("r", encoding="utf-8", errors="replace", newline="") as f:
-                    reader = csv.DictReader(f)
-                    for row in reader:
-                        rows.append(row)
-
-                base_doc["rows"] = rows
-
-            except Exception as e:
-                logger.warning("CSV parse failed for %s: %s", rel, e)
-        else:
+        if not loader:
             logger.debug("Unknown loader type '%s' for %s; using default", ltype, rel)
             return base_doc
 
-        # Run processors (if any)
-        if rule:
-            base_doc = apply_processors(base_doc, rule)
+        return loader(
+            base_doc,
+            content,
+            rel=rel,
+            path=path
+        )
 
-        return base_doc
     except FileNotFoundError:
         return None
-
 
 def top_level_index_for(rel_path: str) -> str | None:
     """Return the index uid based on the top-level directory under DOCS_DIR.
@@ -416,6 +398,28 @@ def top_level_index_for(rel_path: str) -> str | None:
     return top
 
 
+def _json_default(o):
+    """Default JSON serializer for types not supported by json by default.
+
+    - datetime/date → ISO 8601 string
+    - Path → str
+    - set → list
+    Fallback: str(o)
+    """
+    try:
+        if isinstance(o, (datetime, date)):
+            return o.isoformat()
+        if isinstance(o, Path):
+            return str(o)
+        if isinstance(o, set):
+            return list(o)
+    except Exception:
+        # If any unexpected error occurs during checks, fall through to str()
+        pass
+    # Fallback to string representation to avoid serialization errors
+    return str(o)
+
+
 def upsert_docs(index_uid: str, docs):
     if not docs:
         return
@@ -425,7 +429,7 @@ def upsert_docs(index_uid: str, docs):
             r = session.post(
                 f"{MEILISEARCH_HOST}/indexes/{index_uid}/documents?primaryKey=id",
                 headers=headers,
-                data=json.dumps(docs),
+                data=json.dumps(docs, default=_json_default),
                 timeout=30,
             )
             r.raise_for_status()
@@ -474,7 +478,6 @@ def initial_full_load():
         index_uid = top_level_index_for(doc["path"])  # decide index by first folder
 
         if not index_uid:
-            # Skip files at DOCS_DIR root to adhere to 'each folder' requirement
             logger.debug("Skipping file not in a folder: %s", doc["path"])
             continue
 

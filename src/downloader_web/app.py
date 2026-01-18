@@ -7,6 +7,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
+from fnmatch import fnmatch
 from typing import Any
 import logging
 
@@ -16,7 +17,7 @@ from flask import Flask, jsonify
 
 PORT = int(os.environ.get("PORT", "8080"))
 DOCS_ROOT = Path(os.environ.get("DOCS_ROOT", "/volumes/output"))
-CONFIG_PATH = Path(os.environ.get("DOWNLOAD_CONFIG", "/config/download.yml"))
+CONFIG_PATH = Path(os.environ.get("CONFIG_FILE", "/config/download.yml"))
 READY_MARKER = DOCS_ROOT / ".ready"
 
 # Logging setup
@@ -69,21 +70,81 @@ def rm_rf(path: Path) -> None:
         shutil.rmtree(path, ignore_errors=True)
 
 
-def copy_tree_contents(src_dir: Path, dst_dir: Path) -> None:
+def copy_tree_contents(
+    src_dir: Path,
+    dst_dir: Path,
+    *,
+    include_global: list[str] | None = None,
+    exclude_global: list[str] | None = None,
+    include_source: list[str] | None = None,
+    exclude_source: list[str] | None = None,
+    dest_rel: str = "",
+) -> None:
     """
-    Copy *contents* of src_dir into dst_dir (not the directory itself).
-    Includes dotfiles. Overwrites files.
+    Copy contents of src_dir into dst_dir with optional filtering rules.
+
+    Pattern semantics:
+    - Global patterns (`include_global`/`exclude_global`) match paths relative to DOCS_ROOT
+      (e.g., "nitro/pnpm-lock.yaml"). These can affect any source.
+    - Source patterns (`include_source`/`exclude_source`) match paths relative to the
+      source destination root (e.g., "**/*.md" inside that source's `dest`).
+
+    Precedence:
+    - If any include list is provided, only files matching it are allowed at that scope.
+    - Excludes always win last: if a file matches any exclude pattern (global or source), it is skipped.
     """
+
+    def _norm_list(v: list[str] | str | None) -> list[str]:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return [v]
+        return [str(x) for x in v]
+
+    include_global = _norm_list(include_global)
+    exclude_global = _norm_list(exclude_global)
+    include_source = _norm_list(include_source)
+    exclude_source = _norm_list(exclude_source)
+
+    def _allowed(rel_file_from_source: str) -> bool:
+        # relative to DOCS_ROOT
+        rel_to_docs = f"{dest_rel}/{rel_file_from_source}" if dest_rel else rel_file_from_source
+
+        def _match_any(path: str, patterns: list[str]) -> bool:
+            return any(fnmatch(path, p) for p in patterns)
+
+        # start allowed
+        allowed = True
+
+        # apply includes (restrictive)
+        if include_global:
+            allowed = _match_any(rel_to_docs, include_global)
+        if allowed and include_source:
+            allowed = _match_any(rel_file_from_source, include_source)
+
+        # apply excludes (override)
+        if allowed and exclude_global and _match_any(rel_to_docs, exclude_global):
+            return False
+        if allowed and exclude_source and _match_any(rel_file_from_source, exclude_source):
+            return False
+
+        return allowed
+
     dst_dir.mkdir(parents=True, exist_ok=True)
 
-    for item in src_dir.iterdir():
-        target = dst_dir / item.name
+    # Walk src_dir to copy files that pass filters
+    for root, _dirs, files in os.walk(src_dir):
+        root_path = Path(root)
+        for fname in files:
+            src_file = root_path / fname
+            rel = src_file.relative_to(src_dir).as_posix()
+            if not _allowed(rel):
+                logger.debug("Skipping excluded file: %s (dest=%s)", rel, dest_rel)
+                continue
 
-        if item.is_dir():
-            shutil.copytree(item, target, dirs_exist_ok=True)
-        else:
+            target = dst_dir / rel
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(item, target)
+            shutil.copy2(src_file, target)
 
 
 def resolve_headers(headers: dict[str, Any]) -> dict[str, str]:
@@ -111,6 +172,8 @@ def load_config() -> dict[str, Any]:
 def download_sources_into(staging_root: Path) -> None:
     cfg = load_config()
     sources = cfg.get("sources", []) or []
+    global_include = cfg.get("include", []) or []
+    global_exclude = cfg.get("exclude", []) or []
 
     session = requests.Session()
 
@@ -124,6 +187,8 @@ def download_sources_into(staging_root: Path) -> None:
             repo = src["repo"]
             ref = src.get("ref")  # branch/tag/sha
             subpath = src.get("subpath", "") or ""
+            src_include = src.get("include", []) or []
+            src_exclude = src.get("exclude", []) or []
 
             logger.info("Downloading git repo=%s ref=%s subpath=%s -> %s", repo, ref, subpath, dest_rel)
 
@@ -142,22 +207,63 @@ def download_sources_into(staging_root: Path) -> None:
             if not src_dir.exists():
                 raise RuntimeError(f"subpath does not exist: repo={repo} subpath={subpath}")
 
-            copy_tree_contents(src_dir, dest_path)
+            copy_tree_contents(
+                src_dir,
+                dest_path,
+                include_global=global_include,
+                exclude_global=global_exclude,
+                include_source=src_include,
+                exclude_source=src_exclude,
+                dest_rel=dest_rel,
+            )
             logger.info("Copied repo contents into %s", dest_path)
 
         elif kind == "http":
             url = src["url"]
             filename = src.get("filename") or (Path(url).name or "file.txt")
             headers = resolve_headers(src.get("headers", {}) or {})
+            src_include = src.get("include", []) or []
+            src_exclude = src.get("exclude", []) or []
 
             logger.info("Downloading http url=%s -> %s/%s", url, dest_rel, filename)
 
-            r = session.get(url, headers=headers, timeout=30)
-            r.raise_for_status()
+            rel_to_docs = f"{dest_rel}/{filename}" if dest_rel else filename
 
-            (dest_path / filename).write_bytes(r.content)
+            def _norm_list(v: Any) -> list[str]:
+                if v is None:
+                    return []
+                if isinstance(v, str):
+                    return [v]
+                return [str(x) for x in v]
 
-            logger.info("Saved %s (%d bytes)", dest_path / filename, len(r.content))
+            g_inc = _norm_list(global_include)
+            g_exc = _norm_list(global_exclude)
+            s_inc = _norm_list(src_include)
+            s_exc = _norm_list(src_exclude)
+
+            def _match_any(path: str, patterns: list[str]) -> bool:
+                return any(fnmatch(path, p) for p in patterns)
+
+            # Apply include/exclude logic for single file
+            allowed = True
+            if g_inc:
+                allowed = _match_any(rel_to_docs, g_inc)
+            if allowed and s_inc:
+                allowed = _match_any(filename, s_inc)
+            if allowed and g_exc and _match_any(rel_to_docs, g_exc):
+                allowed = False
+            if allowed and s_exc and _match_any(filename, s_exc):
+                allowed = False
+
+            if not allowed:
+                logger.info("Skipping HTTP download due to filters: %s -> %s/%s", url, dest_rel, filename)
+            else:
+                r = session.get(url, headers=headers, timeout=30)
+                r.raise_for_status()
+
+                (dest_path / filename).write_bytes(r.content)
+
+                logger.info("Saved %s (%d bytes)", dest_path / filename, len(r.content))
 
         else:
             raise ValueError(f"Unknown source type: {kind}")

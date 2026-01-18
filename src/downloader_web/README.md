@@ -88,12 +88,22 @@
  Schema:
 
  ```
+ # Optional global filters (apply to all sources)
+ include:                  # optional: whitelist patterns (relative to DOCS_ROOT)
+   - "**/*.md"
+ exclude:                  # optional: blacklist patterns (relative to DOCS_ROOT)
+   - "**/pnpm-lock.yaml"
+
  sources:
    - type: git
      repo: https://github.com/org/repo.git
      subpath: docs            # optional
      ref: main                # optional (branch, tag, or SHA)
      dest: some/folder        # relative to DOCS_ROOT
+     include:                 # optional per-source whitelist (relative to this source's dest)
+       - "**/*.md"
+     exclude:                 # optional per-source blacklist (relative to this source's dest)
+       - "drafts/**"
 
    - type: http
      url: https://example.com/file.md
@@ -101,12 +111,28 @@
      headers:                 # optional; values starting with $ are env lookups
        Authorization: $TOKEN
      dest: another/folder
+     # per-source include/exclude also supported here
+     # include: ["file.md"]
+     # exclude: ["*.tmp"]
  ```
 
  Notes:
  - `dest` is relative to `DOCS_ROOT` and will be created if missing.
  - HTTP `headers` values beginning with `$` will be resolved from environment variables.
  - Git `ref` is optional; if omitted, the default branch will be used.
+ - Filtering rules:
+   - Patterns use shell-style globs (fnmatch), e.g., `**/*.md`, `docs/**`, `nitro/pnpm-lock.yaml`.
+   - Global `include`/`exclude` match paths relative to `DOCS_ROOT`.
+   - Per-source `include`/`exclude` match paths relative to that source's `dest`.
+   - Precedence: includes are restrictive (if provided, only matching files pass); excludes always win last and remove matches even if included.
+   - If no filters are set, behavior is unchanged and all files are copied as before.
+
+ Example for the request “do not copy nitro/pnpm-lock.yaml”: add this to the root of your config file:
+
+ ```
+ exclude:
+   - nitro/pnpm-lock.yaml
+ ```
 
  ---
 
@@ -116,7 +142,7 @@
  |---|---|---|
  | `PORT` | `8080` | HTTP server port |
  | `DOCS_ROOT` | `/volumes/output` | Destination directory for downloaded files. In compose, bound to `./output` |
- | `DOWNLOAD_CONFIG` | `/config/download.yml` | Path to the YAML sources config inside the container |
+ | `CONFIG_FILE` | `/config/download.yml` | Path to the YAML sources config inside the container |
  | `LOG_LEVEL` | `INFO` | Python logging level (e.g., DEBUG, INFO, WARNING) |
 
  When running with the provided `docker-compose.yml`, volumes and envs are set for you:
@@ -127,7 +153,7 @@
 
  ## Typical data flow
 
- 1) Service starts and reads `DOWNLOAD_CONFIG`
+ 1) Service starts and reads `CONFIG_FILE`
  2) Each source is downloaded into a staging directory
  3) The contents of staging replace everything in `DOCS_ROOT` (a `.ready` file is written)
  4) Dependent services (e.g., a file loader/indexer) wait for `/health` to turn healthy, then process files from `DOCS_ROOT`
