@@ -37,3 +37,7 @@ sources:
     url: https://raw.githubusercontent.com/atinux/nuxt-auth-utils/main/README.md
     filename: nuxt-auth-utils.md
     dest: nuxt-auth-utils
+
+loaders:
+  - path: nuxt
+    type: frontmatter

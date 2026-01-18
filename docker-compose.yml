@@ -17,6 +17,7 @@ services:
 
   meilisearch:
     image: getmeili/meilisearch:v1.7
+    user: "${UID:-1000}:${GID:-1000}"
     environment:
       - MEILI_HTTP_ADDR=0.0.0.0:7700
       - MEILI_NO_ANALYTICS=true
@@ -39,7 +40,6 @@ services:
     build:
       context: src/downloader_web
       dockerfile: Dockerfile
-    # Run as the current host user to ensure files written to bind mounts are not owned by root
     user: "${UID:-1000}:${GID:-1000}"
     environment:
       - DOWNLOAD_CONFIG=/config/download.yml
@@ -69,8 +69,10 @@ services:
       - DOCS_DIR=/volumes/output
       - MEILISEARCH_INDEX=docs
       - MEILISEARCH_MASTER_KEY=${MEILISEARCH_MASTER_KEY}
+      - DOWNLOAD_CONFIG=/config/download.yml
     volumes:
       - ./output:/volumes/output
+      - ./data-sources.yml:/config/download.yml:ro
     depends_on:
       init-perms:
         condition: service_completed_successfully
