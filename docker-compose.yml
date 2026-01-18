@@ -1,0 +1,109 @@
+services:
+  init-perms:
+    image: alpine:3.19
+    # Run as root to be able to fix ownership and create directories on bind mounts
+    user: "0:0"
+    environment:
+      - UID=${UID:-1000}
+      - GID=${GID:-1000}
+    volumes:
+      - ./output:/volumes/output
+      - ./config:/volumes/meilisearch
+    command: >-
+      sh -c "set -eux;
+      mkdir -p /volumes/output /volumes/meilisearch/db;
+      chown -R ${UID:-1000}:${GID:-1000} /volumes/output /volumes/meilisearch || true;
+      echo 'init-perms done'"
+    restart: "no"
+
+  meilisearch:
+    build:
+      context: ./src/meilisearch
+      dockerfile: Dockerfile
+    # Run Meilisearch as the current host user so the generated master key and DB files belong to you
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      - MEILI_HTTP_ADDR=0.0.0.0:7700
+      - MEILI_DB_PATH=/meili_data/db
+      - MEILI_NO_ANALYTICS=true
+      - MEILI_ENV=development
+    volumes:
+      - ./output:/volumes/output
+      - ./config:/volumes/meilisearch
+    ports:
+      - "7700:7700"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7700/health >/dev/null"]
+      interval: 5s
+      timeout: 2s
+      retries: 30
+    depends_on:
+      init-perms:
+        condition: service_completed_successfully
+
+  downloader_web:
+    build:
+      context: src/downloader_web
+      dockerfile: Dockerfile
+    # Run as the current host user to ensure files written to bind mounts are not owned by root
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      - DOWNLOAD_CONFIG=/config/download.yml
+      - DOCS_ROOT=/volumes/output
+    volumes:
+      - ./output:/volumes/output
+      - ./data-sources.yml:/config/download.yml:ro
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health >/dev/null"]
+      interval: 5s
+      timeout: 2s
+      retries: 20
+    depends_on:
+      init-perms:
+        condition: service_completed_successfully
+
+  file_loader:
+    build:
+      context: src/file_loader
+      dockerfile: Dockerfile
+    # Run file_loader as the current host user so any state files and temp files match your UID/GID
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      - MEILI_HOST=http://meilisearch:7700
+      - DOCS_DIR=/volumes/output
+      - MEILI_INDEX=docs
+      - MASTER_KEY_PATH=/volumes/meilisearch/master_key
+    volumes:
+      - ./output:/volumes/output
+      - ./config:/volumes/meilisearch
+    depends_on:
+      init-perms:
+        condition: service_completed_successfully
+      downloader_web:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mcp_server:
+    build:
+      context: ./src/mcp_server
+      dockerfile: Dockerfile
+    # Run as the current host user similar to other services
+    user: "${UID:-1000}:${GID:-1000}"
+    ports:
+      - "8000:8000"
+    environment:
+      - MEILI_HOST=http://meilisearch:7700
+      - MASTER_KEY_PATH=/volumes/meilisearch/master_key
+      - MEILI_ALLOWED_INDEXES=${MEILI_ALLOWED_INDEXES:-}
+      - FILES_ROOT=/volumes/output
+    volumes:
+      - ./config:/volumes/meilisearch:ro
+      - ./output:/volumes/output:ro
+    depends_on:
+      meilisearch:
+        condition: service_healthy
+    restart: unless-stopped
