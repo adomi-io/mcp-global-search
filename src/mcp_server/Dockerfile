@@ -2,7 +2,7 @@ FROM python:3.11-alpine
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    MEILI_HOST=http://meilisearch:7700
+    MEILISEARCH_HOST=http://meilisearch:7700
 
 RUN set -eux; \
     apk add --no-cache ca-certificates bash curl; \

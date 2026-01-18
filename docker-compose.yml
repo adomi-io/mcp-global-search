@@ -1,35 +1,29 @@
 services:
   init-perms:
     image: alpine:3.19
-    # Run as root to be able to fix ownership and create directories on bind mounts
     user: "0:0"
     environment:
       - UID=${UID:-1000}
       - GID=${GID:-1000}
     volumes:
       - ./output:/volumes/output
-      - ./config:/volumes/meilisearch
+      - ./config/meilisearch:/volumes/meilisearch
     command: >-
       sh -c "set -eux;
-      mkdir -p /volumes/output /volumes/meilisearch/db;
+      mkdir -p /volumes/output /volumes/meilisearch;
       chown -R ${UID:-1000}:${GID:-1000} /volumes/output /volumes/meilisearch || true;
       echo 'init-perms done'"
     restart: "no"
 
   meilisearch:
-    build:
-      context: ./src/meilisearch
-      dockerfile: Dockerfile
-    # Run Meilisearch as the current host user so the generated master key and DB files belong to you
-    user: "${UID:-1000}:${GID:-1000}"
+    image: getmeili/meilisearch:v1.7
     environment:
       - MEILI_HTTP_ADDR=0.0.0.0:7700
-      - MEILI_DB_PATH=/meili_data/db
       - MEILI_NO_ANALYTICS=true
       - MEILI_ENV=development
+      - MEILI_MASTER_KEY=${MEILISEARCH_MASTER_KEY}
     volumes:
-      - ./output:/volumes/output
-      - ./config:/volumes/meilisearch
+      - ./config/meilisearch:/meili_data
     ports:
       - "7700:7700"
     healthcheck:
@@ -71,13 +65,12 @@ services:
     # Run file_loader as the current host user so any state files and temp files match your UID/GID
     user: "${UID:-1000}:${GID:-1000}"
     environment:
-      - MEILI_HOST=http://meilisearch:7700
+      - MEILISEARCH_HOST=http://meilisearch:7700
       - DOCS_DIR=/volumes/output
-      - MEILI_INDEX=docs
-      - MASTER_KEY_PATH=/volumes/meilisearch/master_key
+      - MEILISEARCH_INDEX=docs
+      - MEILISEARCH_MASTER_KEY=${MEILISEARCH_MASTER_KEY}
     volumes:
       - ./output:/volumes/output
-      - ./config:/volumes/meilisearch
     depends_on:
       init-perms:
         condition: service_completed_successfully
@@ -96,12 +89,11 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - MEILI_HOST=http://meilisearch:7700
-      - MASTER_KEY_PATH=/volumes/meilisearch/master_key
-      - MEILI_ALLOWED_INDEXES=${MEILI_ALLOWED_INDEXES:-}
+      - MEILISEARCH_HOST=http://meilisearch:7700
+      - MEILISEARCH_MASTER_KEY=${MEILISEARCH_MASTER_KEY}
+      - MEILISEARCH_ALLOWED_INDEXES=${MEILISEARCH_ALLOWED_INDEXES:-}
       - FILES_ROOT=/volumes/output
     volumes:
-      - ./config:/volumes/meilisearch:ro
       - ./output:/volumes/output:ro
     depends_on:
       meilisearch:

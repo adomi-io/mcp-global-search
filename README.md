@@ -1,0 +1,1 @@
+echo "MEILISEARCH_MASTER_KEY=$(openssl rand -hex 32)" >> .env

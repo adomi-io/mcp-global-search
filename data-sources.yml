@@ -24,6 +24,16 @@ sources:
     dest: odoo
 
   - type: http
+    url: https://raw.githubusercontent.com/adomi-io/odoo/refs/heads/19.0/README.md
+    filename: odoo_readme.md
+    dest: readme_examples
+
+  - type: http
+    url: https://raw.githubusercontent.com/adomi-io/listing-lab/refs/heads/master/README.md
+    filename: listing_lab_readme.md
+    dest: readme_examples
+
+  - type: http
     url: https://raw.githubusercontent.com/atinux/nuxt-auth-utils/main/README.md
     filename: nuxt-auth-utils.md
     dest: nuxt-auth-utils

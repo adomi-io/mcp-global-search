@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-Meilisearch MCP Server (minimal, with auth from env or MASTER_KEY_PATH)
+Meilisearch MCP Server (auth via MEILISEARCH_MASTER_KEY only)
 
 Install:
   pip install fastmcp httpx
 
 Run:
-  export MEILI_URL="http://127.0.0.1:7700"
-  export MEILI_API_KEY="..."                 # optional
-  export MASTER_KEY_PATH="/volumes/meilisearch/master_key"  # optional fallback
+  export MEILISEARCH_HOST="http://127.0.0.1:7700"
+  export MEILISEARCH_MASTER_KEY="..."
   python meili_mcp.py
 """
 
@@ -23,7 +22,7 @@ from fastmcp import FastMCP
 
 Json = Optional[Union[bool, int, float, str, List[Any], Dict[str, Any]]]
 
-MEILI_URL = (os.getenv("MEILI_URL") or os.getenv("MEILI_HOST") or "http://meilisearch:7700").rstrip("/")
+MEILISEARCH_HOST = (os.getenv("MEILISEARCH_HOST", "http://meilisearch:7700")).rstrip("/")
 FILES_ROOT = os.path.abspath(os.getenv("FILES_ROOT", "/volumes/output"))
 
 # Allowed indexes/folders configuration. If empty -> allow all.
@@ -38,7 +37,7 @@ def _parse_allowed(raw: Optional[str]) -> List[str]:
             parts.append(s)
     return parts
 
-_ALLOWED_RAW = os.getenv("ALLOWED_INDEXES") or os.getenv("allowed_indexes") or ""
+_ALLOWED_RAW = os.getenv("MEILISEARCH_ALLOWED_INDEXES", "")
 ALLOWED_INDEXES: List[str] = [s.lower() for s in _parse_allowed(_ALLOWED_RAW)]
 
 def _is_restricted() -> bool:
@@ -61,23 +60,14 @@ def _is_allowed_path(path: str) -> bool:
     first = rel.split("/", 1)[0].split("\\", 1)[0]
     return first.lower() in ALLOWED_INDEXES
 
-def load_api_key() -> str:
-    key = (os.getenv("MEILI_API_KEY") or "").strip()
+def require_master_key() -> str:
+    key = (os.getenv("MEILISEARCH_MASTER_KEY") or "").strip()
     if key:
         return key
-
-    path = (os.getenv("MASTER_KEY_PATH") or "").strip()
-    if path:
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return f.read().strip()
-        except OSError:
-            pass
-
-    return ""
+    raise RuntimeError("MEILISEARCH_MASTER_KEY is required but not set")
 
 
-MEILI_API_KEY = load_api_key()
+MEILISEARCH_MASTER_KEY = (os.getenv("MEILISEARCH_MASTER_KEY") or "").strip()
 
 STATE: Dict[str, Any] = {
     "client": None
@@ -88,11 +78,13 @@ async def lifespan(_: FastMCP):
     headers = {
         "Content-Type": "application/json"
     }
+    if not MEILISEARCH_MASTER_KEY:
+        # Re-check and raise if missing
+        headers.clear()  # not strictly necessary; ensures no client without auth
+        raise RuntimeError("MEILISEARCH_MASTER_KEY is required but not set")
+    headers["Authorization"] = f"Bearer {MEILISEARCH_MASTER_KEY}"
 
-    if MEILI_API_KEY:
-        headers["Authorization"] = f"Bearer {MEILI_API_KEY}"
-
-    STATE["client"] = httpx.AsyncClient(base_url=MEILI_URL, headers=headers)
+    STATE["client"] = httpx.AsyncClient(base_url=MEILISEARCH_HOST, headers=headers)
     
     try:
         yield

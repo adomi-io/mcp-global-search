@@ -21,10 +21,12 @@ READY_MARKER = DOCS_ROOT / ".ready"
 
 # Logging setup
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
+
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL, logging.INFO),
     format="%(asctime)s [downloader_web] %(levelname)s: %(message)s",
 )
+
 logger = logging.getLogger("downloader_web")
 
 app = Flask(__name__)
@@ -37,9 +39,9 @@ state: dict[str, Any] = {
 
 _refresh_lock = threading.Lock()
 
-
 def sh(cmd: list[str], cwd: Path | None = None) -> str:
     logger.debug(f"Running command: {' '.join(cmd)} (cwd={cwd})")
+
     proc = subprocess.run(
         cmd,
         cwd=str(cwd) if cwd else None,
@@ -47,16 +49,20 @@ def sh(cmd: list[str], cwd: Path | None = None) -> str:
         stderr=subprocess.STDOUT,
         text=True,
     )
+
     if proc.returncode != 0:
         logger.error("Command failed (%s): %s", proc.returncode, " ".join(cmd))
         raise RuntimeError(f"Command failed ({proc.returncode}): {' '.join(cmd)}\n{proc.stdout}")
+
     logger.debug(f"Command succeeded: {' '.join(cmd)}")
+
     return proc.stdout
 
 
 def rm_rf(path: Path) -> None:
     if not path.exists():
         return
+
     if path.is_file() or path.is_symlink():
         path.unlink(missing_ok=True)
     else:
@@ -69,8 +75,10 @@ def copy_tree_contents(src_dir: Path, dst_dir: Path) -> None:
     Includes dotfiles. Overwrites files.
     """
     dst_dir.mkdir(parents=True, exist_ok=True)
+
     for item in src_dir.iterdir():
         target = dst_dir / item.name
+
         if item.is_dir():
             shutil.copytree(item, target, dirs_exist_ok=True)
         else:
@@ -80,17 +88,22 @@ def copy_tree_contents(src_dir: Path, dst_dir: Path) -> None:
 
 def resolve_headers(headers: dict[str, Any]) -> dict[str, str]:
     resolved: dict[str, str] = {}
+
     for k, v in (headers or {}).items():
         if isinstance(v, str) and v.startswith("$"):
             resolved[k] = os.environ.get(v[1:], "")
         else:
             resolved[k] = str(v)
+
     return resolved
 
 
 def load_config() -> dict[str, Any]:
     if not CONFIG_PATH.exists():
-        return {"sources": []}
+        return {
+            "sources": []
+        }
+
     with CONFIG_PATH.open("r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {"sources": []}
 
@@ -121,11 +134,11 @@ def download_sources_into(staging_root: Path) -> None:
             sh(["git", "clone", "--depth=1", repo, str(repo_dir)])
 
             if ref:
-                # works for branch/tag/sha (sha may require fetch)
                 sh(["git", "fetch", "--depth=1", "origin", str(ref)], cwd=repo_dir)
                 sh(["git", "checkout", "FETCH_HEAD"], cwd=repo_dir)
 
             src_dir = repo_dir / subpath if subpath else repo_dir
+
             if not src_dir.exists():
                 raise RuntimeError(f"subpath does not exist: repo={repo} subpath={subpath}")
 
@@ -136,10 +149,14 @@ def download_sources_into(staging_root: Path) -> None:
             url = src["url"]
             filename = src.get("filename") or (Path(url).name or "file.txt")
             headers = resolve_headers(src.get("headers", {}) or {})
+
             logger.info("Downloading http url=%s -> %s/%s", url, dest_rel, filename)
+
             r = session.get(url, headers=headers, timeout=30)
             r.raise_for_status()
+
             (dest_path / filename).write_bytes(r.content)
+
             logger.info("Saved %s (%d bytes)", dest_path / filename, len(r.content))
 
         else:
@@ -155,11 +172,13 @@ def replace_docs_root_from(staging_root: Path) -> None:
 
     # Remove everything in DOCS_ROOT (including old .ready), then move staging contents in.
     logger.info("Replacing DOCS_ROOT at %s from staging %s", DOCS_ROOT, staging_root)
+
     for child in list(DOCS_ROOT.iterdir()):
         # If staging_root is inside DOCS_ROOT, do not delete it before moving
         if child == staging_root:
             logger.debug("Skipping deletion of staging directory: %s", child)
             continue
+
         rm_rf(child)
 
     for child in staging_root.iterdir():
@@ -192,9 +211,11 @@ def _download_and_update_state(initial: bool = False) -> None:
         state["initial_done"] = True
         state["last_error"] = None
         logger.info("Download completed (initial=%s)", initial)
+
     except Exception as e:
         state["last_error"] = str(e)
         logger.exception("Download failed (initial=%s): %s", initial, e)
+
         if initial:
             state["initial_done"] = False
     finally:
@@ -239,8 +260,8 @@ def health():
 
 
 def main() -> None:
-    # Hard guarantee: do the first download before serving HTTP.
     logger.info("Downloader starting on port %s; docs root=%s; config=%s", PORT, DOCS_ROOT, CONFIG_PATH)
+
     with _refresh_lock:
         state["refreshing"] = True
         _download_and_update_state(initial=True)

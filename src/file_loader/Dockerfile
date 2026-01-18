@@ -3,9 +3,8 @@ FROM python:3.11-alpine
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     DOCS_DIR=/volumes/output \
-    MEILI_HOST=http://meilisearch:7700 \
-    MEILI_INDEX=docs \
-    MASTER_KEY_PATH=/volumes/meilisearch/master_key
+    MEILISEARCH_HOST=http://meilisearch:7700 \
+    MEILISEARCH_INDEX=docs
 
 RUN set -eux; \
     apk add --no-cache ca-certificates bash curl; \
