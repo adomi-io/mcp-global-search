@@ -2,7 +2,7 @@ FROM python:3.11-alpine
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    DOCS_DIR=/volumes/output \
+    DOCS_DIR=/volumes/input \
     MEILISEARCH_HOST=http://meilisearch:7700
 
 RUN set -eux; \

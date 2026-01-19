@@ -70,14 +70,14 @@ Environment variables from your shell will be used (see the table below). There 
 | `MEILISEARCH_BATCH_SIZE` | `200` | Max documents per upsert batch |
 | `MEILISEARCH_MAX_BYTES` | `2097152` (2 MiB) | Skip files larger than this size |
 | `MEILISEARCH_ALLOWED_EXTS` | `.md,.mdx,.txt,.json,.yml,.yaml,.toml,.js,.ts,.vue,.css,.html,.sh,.py` | Comma-separated list of allowed file extensions |
-| `DOCS_DIR` | `/volumes/output` | Directory to scan/watch (mounted to `./output` in Compose) |
+| `DOCS_DIR` | `/volumes/input` | Directory to scan/watch (mounted to `./output` in Compose) |
 | `CONFIG_FILE` | `/config/download.yml` | YAML config used for optional loader rules (see below) |
 | `LOG_LEVEL` | `INFO` | Python logging level (for example, DEBUG, INFO, WARNING) |
 
 > [!TIP]
 > When running with the provided `docker-compose.yml`, volumes and envs are set for you:
-- `./output` → `/volumes/output`
-- `./data-sources.yml` (read-only) → `/config/download.yml`
+ - `./output` → `/volumes/input`
+ - `./data-sources.yml` (read-only) → `/config/download.yml`
 
 
 ## File formats and loader types

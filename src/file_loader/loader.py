@@ -16,7 +16,7 @@ from watchdog.events import FileSystemEventHandler
 import yaml
 
 MEILISEARCH_HOST = os.environ.get("MEILISEARCH_HOST", "http://meilisearch:7700").rstrip("/")
-DOCS_DIR = Path(os.environ.get("DOCS_DIR", "/volumes/output"))
+DOCS_DIR = Path(os.environ.get("DOCS_DIR", "/volumes/input"))
 MEILISEARCH_MASTER_KEY = os.environ.get("MEILISEARCH_MASTER_KEY", "").strip()
 BATCH_SIZE = int(os.environ.get("MEILISEARCH_BATCH_SIZE", "200"))
 MAX_BYTES = int(os.environ.get("MEILISEARCH_MAX_BYTES", str(2 * 1024 * 1024)))

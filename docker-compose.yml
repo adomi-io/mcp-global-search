@@ -1,30 +1,13 @@
 services:
-  init-perms:
-    image: alpine:3.19
-    user: "0:0"
-    environment:
-      - UID=${UID:-1000}
-      - GID=${GID:-1000}
-    volumes:
-      - ./output:/volumes/output
-      - ./config/meilisearch:/volumes/meilisearch
-    command: >-
-      sh -c "set -eux;
-      mkdir -p /volumes/output /volumes/meilisearch;
-      chown -R ${UID:-1000}:${GID:-1000} /volumes/output /volumes/meilisearch || true;
-      echo 'init-perms done'"
-    restart: "no"
-
   meilisearch:
     image: getmeili/meilisearch:v1.7
-#    user: "${UID:-1000}:${GID:-1000}"
     environment:
       - MEILI_HTTP_ADDR=0.0.0.0:7700
       - MEILI_NO_ANALYTICS=true
       - MEILI_ENV=development
       - MEILI_MASTER_KEY=${MEILISEARCH_MASTER_KEY}
-#    volumes:
-#      - ./config/meilisearch:/meili_data
+    volumes:
+      - meilisearch_data:/meili_data
     ports:
       - "7700:7700"
     healthcheck:
@@ -32,20 +15,16 @@ services:
       interval: 5s
       timeout: 2s
       retries: 30
-    depends_on:
-      init-perms:
-        condition: service_completed_successfully
 
   downloader_web:
     build:
       context: src/downloader_web
       dockerfile: Dockerfile
-    user: "${UID:-1000}:${GID:-1000}"
     environment:
       - CONFIG_FILE=/config/download.yml
       - DOCS_ROOT=/volumes/output
     volumes:
-      - ./output:/volumes/output
+      - output_data:/volumes/output
       - ./data-sources.yml:/config/download.yml:ro
     ports:
       - "8080:8080"
@@ -54,27 +33,20 @@ services:
       interval: 5s
       timeout: 2s
       retries: 20
-    depends_on:
-      init-perms:
-        condition: service_completed_successfully
 
   file_loader:
     build:
       context: src/file_loader
       dockerfile: Dockerfile
-    # Run file_loader as the current host user so any state files and temp files match your UID/GID
-    user: "${UID:-1000}:${GID:-1000}"
     environment:
       - MEILISEARCH_HOST=http://meilisearch:7700
-      - DOCS_DIR=/volumes/output
+      - DOCS_DIR=/volumes/input
       - MEILISEARCH_MASTER_KEY=${MEILISEARCH_MASTER_KEY}
       - CONFIG_FILE=/config/download.yml
     volumes:
-      - ./output:/volumes/output
+      - output_data:/volumes/input
       - ./data-sources.yml:/config/download.yml:ro
     depends_on:
-      init-perms:
-        condition: service_completed_successfully
       downloader_web:
         condition: service_healthy
       meilisearch:
@@ -85,18 +57,20 @@ services:
     build:
       context: ./src/mcp_server
       dockerfile: Dockerfile
-    # Run as the current host user similar to other services
-    user: "${UID:-1000}:${GID:-1000}"
     ports:
       - "8000:8000"
     environment:
       - MEILISEARCH_HOST=http://meilisearch:7700
       - MEILISEARCH_MASTER_KEY=${MEILISEARCH_MASTER_KEY}
       - MEILISEARCH_ALLOWED_INDEXES=${MEILISEARCH_ALLOWED_INDEXES:-}
-      - FILES_ROOT=/volumes/output
+      - FILES_ROOT=/volumes/input
     volumes:
-      - ./output:/volumes/output:ro
+      - output_data:/volumes/input:ro
     depends_on:
       meilisearch:
         condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  output_data:
+  meilisearch_data:

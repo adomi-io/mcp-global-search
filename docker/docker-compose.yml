@@ -1,0 +1,92 @@
+services:
+  init-perms:
+    image: alpine:3.19
+    user: "0:0"
+    environment:
+      - UID=${UID:-1000}
+      - GID=${GID:-1000}
+    volumes:
+      - ./output:/volumes/output
+    command: >-
+      sh -c "set -eux;
+      mkdir -p /volumes/output;
+      chown -R ${UID:-1000}:${GID:-1000} /volumes/output || true;
+      echo 'init-perms done'"
+    restart: "no"
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.7
+    restart: unless-stopped
+    ports:
+      - "7700:7700"
+    environment:
+      - MEILI_HTTP_ADDR=0.0.0.0:7700
+      - MEILI_NO_ANALYTICS=true
+      - MEILI_ENV=development
+      - MEILI_MASTER_KEY=${MEILISEARCH_MASTER_KEY}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7700/health >/dev/null"]
+      interval: 5s
+      timeout: 2s
+      retries: 30
+    depends_on:
+      init-perms:
+        condition: service_completed_successfully
+
+  mcp_server:
+    image: ghcr.io/adomi-io/mcp-gs-mcp-server:latest
+    user: "${UID:-1000}:${GID:-1000}"
+    ports:
+      - "8000:8000"
+    environment:
+      - MEILISEARCH_HOST=http://meilisearch:7700
+      - MEILISEARCH_MASTER_KEY=${MEILISEARCH_MASTER_KEY}
+      - MEILISEARCH_ALLOWED_INDEXES=${MEILISEARCH_ALLOWED_INDEXES:-}
+      - FILES_ROOT=/volumes/input
+    volumes:
+      - ./output:/volumes/input:ro
+    depends_on:
+      meilisearch:
+        condition: service_healthy
+    restart: unless-stopped
+
+  downloader_web:
+    image: ghcr.io/adomi-io/mcp-gs-downloader-web:latest
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      - CONFIG_FILE=/config/download.yml
+      - DOCS_ROOT=/volumes/output
+    volumes:
+      - ./output:/volumes/output
+      - ./data-sources.yml:/config/download.yml:ro
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health >/dev/null"]
+      interval: 5s
+      timeout: 2s
+      retries: 20
+    depends_on:
+      init-perms:
+        condition: service_completed_successfully
+
+  file_loader:
+    image: ghcr.io/adomi-io/mcp-gs-file-loader:latest
+    # Run file_loader as the current host user so any state files and temp files match your UID/GID
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      - MEILISEARCH_HOST=http://meilisearch:7700
+      - MEILISEARCH_MASTER_KEY=${MEILISEARCH_MASTER_KEY}
+      - CONFIG_FILE=/config/download.yml
+      - DOCS_DIR=/volumes/input
+    volumes:
+      - ./output:/volumes/input
+      - ./data-sources.yml:/config/download.yml:ro
+    depends_on:
+      init-perms:
+        condition: service_completed_successfully
+      downloader_web:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+    restart: unless-stopped

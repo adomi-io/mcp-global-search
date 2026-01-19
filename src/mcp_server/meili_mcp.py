@@ -35,7 +35,7 @@ from fastmcp import FastMCP
 Json = Optional[Union[bool, int, float, str, List[Any], Dict[str, Any]]]
 
 MEILISEARCH_HOST = (os.getenv("MEILISEARCH_HOST", "http://meilisearch:7700")).rstrip("/")
-FILES_ROOT = os.path.abspath(os.getenv("FILES_ROOT", "/volumes/output"))
+FILES_ROOT = os.path.abspath(os.getenv("FILES_ROOT", "/volumes/input"))
 
 
 def _parse_allowed(raw: Optional[str]) -> List[str]:

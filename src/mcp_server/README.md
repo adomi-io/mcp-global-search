@@ -133,14 +133,14 @@ Fetch the exact source bytes/text for a file under `FILES_ROOT` (used to ground 
 | `MEILISEARCH_HOST` | `http://meilisearch:7700` | Base URL for Meilisearch |
 | `MEILISEARCH_MASTER_KEY` | — | Required. Bearer token used for Meilisearch API calls |
 | `MEILISEARCH_ALLOWED_INDEXES` | empty | Optional allow‑list of index UIDs (space/comma/newline separated). Filters list/search and restricts file fetches by first path segment |
-| `FILES_ROOT` | `/volumes/output` | Root directory of loaded files used by `get_document_file()` |
+| `FILES_ROOT` | `/volumes/input` | Root directory of loaded files used by `get_document_file()` |
 | `MCP_TRANSPORT` | `http` | `http` or `stdio` |
 | `MCP_HOST` | `0.0.0.0` | HTTP bind host when `MCP_TRANSPORT=http` |
 | `MCP_PORT` | `8000` | HTTP bind port when `MCP_TRANSPORT=http` |
 
 > [!TIP]
 > When running with the provided `docker-compose.yml`:
-> - `./output` is mounted read‑only at `/volumes/output`
+> - `./output` is mounted read‑only at `/volumes/input`
 > - `MEILISEARCH_HOST` is set to `http://meilisearch:7700`
 > - You must set `MEILISEARCH_MASTER_KEY` in your shell (export) before starting compose
 
@@ -148,7 +148,7 @@ Fetch the exact source bytes/text for a file under `FILES_ROOT` (used to ground 
 
 - Documents are downloaded into `./output` by `downloader_web`
 - `file_loader` reads from `./output` and indexes into Meilisearch
-- This MCP lists/searches those indexes and can read exact files from `./output` via `get_document_file()`
+- This MCP lists/searches those indexes and can read exact files from `./output` (mounted at `/volumes/input` in the container) via `get_document_file()`
 
 ## Updating
 
