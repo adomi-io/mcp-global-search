@@ -1,43 +1,56 @@
 services:
-  init-perms:
-    image: alpine:3.19
-    user: "0:0"
-    environment:
-      - UID=${UID:-1000}
-      - GID=${GID:-1000}
-    volumes:
-      - ./output:/volumes/output
-    command: >-
-      sh -c "set -eux;
-      mkdir -p /volumes/output;
-      chown -R ${UID:-1000}:${GID:-1000} /volumes/output || true;
-      echo 'init-perms done'"
-    restart: "no"
-
   meilisearch:
-    image: getmeili/meilisearch:v1.7
-    restart: unless-stopped
-    ports:
-      - "7700:7700"
-    volumes:
-      - meilisearch_data:/meili_data
+    image: getmeili/meilisearch:latest
     environment:
       - MEILI_HTTP_ADDR=0.0.0.0:7700
       - MEILI_NO_ANALYTICS=true
       - MEILI_ENV=development
       - MEILI_MASTER_KEY=${MEILISEARCH_MASTER_KEY}
+    volumes:
+      - meilisearch_data:/meili_data
+    ports:
+      - "7700:7700"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:7700/health >/dev/null"]
       interval: 5s
       timeout: 2s
       retries: 30
+
+  downloader_web:
+    image: ghcr.io/adomi-io/mcp-gs-downloader-web:latest
+    environment:
+      - CONFIG_FILE=/config/download.yml
+      - DOCS_ROOT=/volumes/output
+    volumes:
+      - ./sources/nuxt.yml:/config/download.yml:ro
+      - output_data:/volumes/output
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health >/dev/null"]
+      interval: 5s
+      timeout: 2s
+      retries: 20
+
+  file_loader:
+    image: ghcr.io/adomi-io/mcp-gs-file-loader:latest
+    environment:
+      - MEILISEARCH_HOST=http://meilisearch:7700
+      - DOCS_DIR=/volumes/input
+      - MEILISEARCH_MASTER_KEY=${MEILISEARCH_MASTER_KEY}
+      - CONFIG_FILE=/config/download.yml
+    volumes:
+      - ./sources/nuxt.yml:/config/download.yml:ro
+      - output_data:/volumes/input
     depends_on:
-      init-perms:
-        condition: service_completed_successfully
+      downloader_web:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+    restart: unless-stopped
 
   mcp_server:
     image: ghcr.io/adomi-io/mcp-gs-mcp-server:latest
-    user: "${UID:-1000}:${GID:-1000}"
     ports:
       - "8000:8000"
     environment:
@@ -46,66 +59,12 @@ services:
       - MEILISEARCH_ALLOWED_INDEXES=${MEILISEARCH_ALLOWED_INDEXES:-}
       - FILES_ROOT=/volumes/input
     volumes:
-      # Default: serve whatever was downloaded into ./output
-      - ./output:/volumes/input:ro
-      # Example: directly serve a local docs folder instead of the downloaded output
-      # - ./path/to/your/docs:/volumes/input:ro
-      # Example: serve multiple local sources by first aggregating them into ./output
-      # (run downloader_web or your own scripts to fill ./output)
+      - output_data:/volumes/input:ro
     depends_on:
-      meilisearch:
-        condition: service_healthy
-    restart: unless-stopped
-
-  downloader_web:
-    image: ghcr.io/adomi-io/mcp-gs-downloader-web:latest
-    user: "${UID:-1000}:${GID:-1000}"
-    environment:
-      - CONFIG_FILE=/config/download.yml
-      - DOCS_ROOT=/volumes/output
-    volumes:
-      - ./output:/volumes/output
-      # Default config of sources to fetch
-      - ./data-sources.yml:/config/download.yml:ro
-      # Example: use the curated Nuxt sources
-      # - ./docker/sources/nuxt.yml:/config/download.yml:ro
-    ports:
-      - "8080:8080"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health >/dev/null"]
-      interval: 5s
-      timeout: 2s
-      retries: 20
-    depends_on:
-      init-perms:
-        condition: service_completed_successfully
-
-  file_loader:
-    image: ghcr.io/adomi-io/mcp-gs-file-loader:latest
-    # Run file_loader as the current host user so any state files and temp files match your UID/GID
-    user: "${UID:-1000}:${GID:-1000}"
-    environment:
-      - MEILISEARCH_HOST=http://meilisearch:7700
-      - MEILISEARCH_MASTER_KEY=${MEILISEARCH_MASTER_KEY}
-      - CONFIG_FILE=/config/download.yml
-      - DOCS_DIR=/volumes/input
-    volumes:
-      # Default: index whatever is in ./output
-      - ./output:/volumes/input
-      # Default source list used by downloader_web (not required if you only index local files)
-      - ./data-sources.yml:/config/download.yml:ro
-      # Example: index a local docs folder directly (bypass downloader_web)
-      # - ./path/to/your/docs:/volumes/input:ro
-      # Example: switch to Nuxt curated sources for downloader_web + file_loader
-      # - ./docker/sources/nuxt.yml:/config/download.yml:ro
-    depends_on:
-      init-perms:
-        condition: service_completed_successfully
-      downloader_web:
-        condition: service_healthy
       meilisearch:
         condition: service_healthy
     restart: unless-stopped
 
 volumes:
+  output_data:
   meilisearch_data:
