@@ -22,7 +22,7 @@ services:
       - CONFIG_FILE=/config/download.yml
       - DOCS_ROOT=/volumes/output
     volumes:
-      - ./sources/nuxt.yml:/config/download.yml:ro
+      - ./sources.yml:/config/download.yml:ro
       - output_data:/volumes/output
     ports:
       - "8080:8080"
@@ -40,7 +40,7 @@ services:
       - MEILISEARCH_MASTER_KEY=${MEILISEARCH_MASTER_KEY}
       - CONFIG_FILE=/config/download.yml
     volumes:
-      - ./sources/nuxt.yml:/config/download.yml:ro
+      - ./sources.yml:/config/download.yml:ro
       - output_data:/volumes/input
     depends_on:
       downloader_web:
