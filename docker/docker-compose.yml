@@ -19,6 +19,8 @@ services:
     restart: unless-stopped
     ports:
       - "7700:7700"
+    volumes:
+      - meilisearch_data:/meili_data
     environment:
       - MEILI_HTTP_ADDR=0.0.0.0:7700
       - MEILI_NO_ANALYTICS=true
@@ -44,7 +46,12 @@ services:
       - MEILISEARCH_ALLOWED_INDEXES=${MEILISEARCH_ALLOWED_INDEXES:-}
       - FILES_ROOT=/volumes/input
     volumes:
+      # Default: serve whatever was downloaded into ./output
       - ./output:/volumes/input:ro
+      # Example: directly serve a local docs folder instead of the downloaded output
+      # - ./path/to/your/docs:/volumes/input:ro
+      # Example: serve multiple local sources by first aggregating them into ./output
+      # (run downloader_web or your own scripts to fill ./output)
     depends_on:
       meilisearch:
         condition: service_healthy
@@ -58,7 +65,10 @@ services:
       - DOCS_ROOT=/volumes/output
     volumes:
       - ./output:/volumes/output
+      # Default config of sources to fetch
       - ./data-sources.yml:/config/download.yml:ro
+      # Example: use the curated Nuxt sources
+      # - ./docker/sources/nuxt.yml:/config/download.yml:ro
     ports:
       - "8080:8080"
     healthcheck:
@@ -80,8 +90,14 @@ services:
       - CONFIG_FILE=/config/download.yml
       - DOCS_DIR=/volumes/input
     volumes:
+      # Default: index whatever is in ./output
       - ./output:/volumes/input
+      # Default source list used by downloader_web (not required if you only index local files)
       - ./data-sources.yml:/config/download.yml:ro
+      # Example: index a local docs folder directly (bypass downloader_web)
+      # - ./path/to/your/docs:/volumes/input:ro
+      # Example: switch to Nuxt curated sources for downloader_web + file_loader
+      # - ./docker/sources/nuxt.yml:/config/download.yml:ro
     depends_on:
       init-perms:
         condition: service_completed_successfully
@@ -90,3 +106,6 @@ services:
       meilisearch:
         condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  meilisearch_data:
