@@ -9,7 +9,7 @@
  - 🔗 Pull content from multiple sources:
    - Git repositories (optionally a subpath, and specific ref/branch/tag)
    - HTTP endpoints (with optional custom headers)
- - 🗂️ Merge results into a single destination directory (`DOCS_ROOT`)
+ - 🗂️ Merge results into a single destinationination directory (`DOCS_ROOT`)
  - 🧪 Health endpoint that reports when the initial sync has completed
  - 🔁 On-demand refresh endpoint to re-sync without restarting the container
  - 🪵 Minimal logs and a `.ready` marker to coordinate with dependent services
@@ -97,10 +97,10 @@
      repo: https://github.com/org/repo.git
      subpath: docs            # optional
      ref: main                # optional (branch, tag, or SHA)
-     dest: some/folder        # relative to DOCS_ROOT
-     include:                 # optional per-source whitelist (relative to this source's dest)
+     destination: some/folder        # relative to DOCS_ROOT
+     include:                 # optional per-source whitelist (relative to this source's destination)
        - "**/*.md"
-     exclude:                 # optional per-source blacklist (relative to this source's dest)
+     exclude:                 # optional per-source blacklist (relative to this source's destination)
        - "drafts/**"
 
    - type: http
@@ -108,20 +108,20 @@
      filename: file.md        # optional; defaults to the last path segment
      headers:                 # optional; values starting with $ are env lookups
        Authorization: $TOKEN
-     dest: another/folder
+     destination: another/folder
      # per-source include/exclude also supported here
      # include: ["file.md"]
      # exclude: ["*.tmp"]
  ```
 
 Notes on schema and filtering:
- - `dest` is relative to `DOCS_ROOT` and will be created if missing.
+ - `destination` is relative to `DOCS_ROOT` and will be created if missing.
  - HTTP `headers` values beginning with `$` will be resolved from environment variables.
  - Git `ref` is optional; if omitted, the default branch will be used.
  - Filtering rules:
    - Patterns use shell-style globs (fnmatch), e.g., `**/*.md`, `docs/**`, `nitro/pnpm-lock.yaml`.
    - Global `include`/`exclude` match paths relative to `DOCS_ROOT`.
-   - Per-source `include`/`exclude` match paths relative to that source's `dest`.
+   - Per-source `include`/`exclude` match paths relative to that source's `destination`.
    - Precedence: includes are restrictive (if provided, only matching files pass); excludes always win last and remove matches even if included.
    - If no filters are set, behavior is unchanged and all files are copied as before.
 
@@ -138,7 +138,7 @@ Notes on schema and filtering:
  | Variable | Default | Notes |
  |---|---|---|
  | `PORT` | `8080` | HTTP server port |
- | `DOCS_ROOT` | `/volumes/output` | Destination directory for downloaded files. In compose, bound to `./output` |
+ | `DOCS_ROOT` | `/volumes/output` | destinationination directory for downloaded files. In compose, bound to `./output` |
  | `CONFIG_FILE` | `/config/download.yml` | Path to the YAML sources config inside the container |
  | `LOG_LEVEL` | `INFO` | Python logging level (e.g., DEBUG, INFO, WARNING) |
 

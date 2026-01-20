@@ -690,16 +690,16 @@ class WatchHandler(FileSystemEventHandler):
         if event.is_directory:
             return
 
-        src = Path(event.src_path)
-        dst = Path(event.dest_path)
+        source = Path(event.src_path)
+        destination = Path(event.destination_path)
 
         try:
-            rel_src = rel_posix(src.relative_to(DOCS_DIR))
+            rel_src = rel_posix(source.relative_to(DOCS_DIR))
             self.queue.schedule_delete(rel_src)
         except Exception:
             pass
 
-        self.queue.schedule_index(dst)
+        self.queue.schedule_index(destination)
 
 
 # ----------------------------

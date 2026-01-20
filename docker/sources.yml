@@ -2,40 +2,40 @@ sources:
   - type: git
     repo: https://github.com/nuxt/nuxt.git
     subpath: docs
-    dest: nuxt
+    destination: nuxt
 
   - type: git
     repo: https://github.com/nitrojs/nitro.git
     subpath: docs
-    dest: nitro
+    destination: nitro
     exclude:
       - "pnpm-lock.yaml"
 
   - type: git
     repo: https://github.com/nuxt/ui.git
     subpath: docs/content
-    dest: nuxt-ui
+    destination: nuxt-ui
 
   - type: git
     repo: https://github.com/nuxt/content.git
     subpath: docs/content
-    dest: nuxt-content
+    destination: nuxt-content
 
   - type: git
     repo: https://github.com/odoo/documentation.git
-    dest: odoo
+    destination: odoo
 
   - type: http
     url: https://raw.githubusercontent.com/adomi-io/odoo/refs/heads/19.0/README.md
     filename: odoo_readme.md
-    dest: readme_examples
+    destination: readme_examples
 
   - type: http
     url: https://raw.githubusercontent.com/adomi-io/listing-lab/refs/heads/master/README.md
     filename: listing_lab_readme.md
-    dest: readme_examples
+    destination: readme_examples
 
   - type: http
     url: https://raw.githubusercontent.com/atinux/nuxt-auth-utils/main/README.md
     filename: nuxt-auth-utils.md
-    dest: nuxt-auth-utils
+    destination: nuxt-auth-utils

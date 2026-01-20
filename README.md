@@ -59,12 +59,12 @@ sources:
     repo: https://github.com/example/docs.git
     subpath: docs
     ref: main
-    dest: docs
+    destination: docs
 
   - type: http
     url: https://example.com/guide.md
     filename: guide.md
-    dest: examples
+    destination: examples
 ```
 
 See the Downloader README for the full schema and filtering rules: `src/downloader_web/README.md`.

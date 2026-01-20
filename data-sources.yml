@@ -1,45 +1,84 @@
-sources:
-  - type: git
-    repo: https://github.com/nuxt/nuxt.git
-    subpath: docs
-    dest: nuxt
+# Top level config key added
+config:
 
-  - type: git
-    repo: https://github.com/nitrojs/nitro.git
-    subpath: docs
-    dest: nitro
-    exclude:
-      - "pnpm-lock.yaml"
+  # This is used by mcp_server and file_loader.
+  # file loader:
+  ## The strategy dictates how we merge the folders.
+  # mcp_server
+  ## The fields under the collection name are merged into the result when the agent makes a request for all indexes
+  ## or makes a request for more details about a single index
+  destinations:
+    nuxt:
+      description: |
+        Nuxt Documentation
+      strategy: merge-source # default: merge, or "append" where it will just add the result to the folder, or "none" which just provides a description
+    nitro:
+      description: |
+        Nuxt Nitro documentation
 
-  - type: git
-    repo: https://github.com/nuxt/ui.git
-    subpath: docs/content
-    dest: nuxt-ui
+  # This is used by the mcp_server, and should be another GET parameter, which allows the end
+  # user to select collections. This should work in conjunction with the selected indexes.
+  # The .env takes priority, then the collection, then the selected indexes.
+  collections:
+    examples:
+      description: |
+        Personal examples of collections
+      destinations:
+        - readme-examples
+    nuxt:
+      description: |
+        Nuxt
+      destinations:
+        - nuxt
+        - nitro
+        - nuxt-ui
+        - nuxt-content
 
-  - type: git
-    repo: https://github.com/nuxt/content.git
-    subpath: docs/content
-    dest: nuxt-content
+  # This is used by the file_loader to parse each source folder. It will force files a specific
+  # directory to use a specific loader. This should, like the other scripts, support a whitelist and blacklist
+  loaders:
+    - path: nuxt
+      type: frontmatter # Force all the files in this directory to use Frontmatter filetypes
 
-  - type: git
-    repo: https://github.com/odoo/documentation.git
-    dest: odoo
+  # These will be downloaded from the internet
+  sources:
+    - type: git
+      repo: https://github.com/nuxt/nuxt.git
+      subpath: docs
+      destination: nuxt
 
-  - type: http
-    url: https://raw.githubusercontent.com/adomi-io/odoo/refs/heads/19.0/README.md
-    filename: odoo_readme.md
-    dest: readme_examples
+    - type: git
+      repo: https://github.com/nitrojs/nitro.git
+      subpath: docs
+      destination: nitro
+      exclude:
+        - "pnpm-lock.yaml"
 
-  - type: http
-    url: https://raw.githubusercontent.com/adomi-io/listing-lab/refs/heads/master/README.md
-    filename: listing_lab_readme.md
-    dest: readme_examples
+    - type: git
+      repo: https://github.com/nuxt/ui.git
+      subpath: docs/content
+      destination: nuxt-ui
 
-  - type: http
-    url: https://raw.githubusercontent.com/atinux/nuxt-auth-utils/main/README.md
-    filename: nuxt-auth-utils.md
-    dest: nuxt-auth-utils
+    - type: git
+      repo: https://github.com/nuxt/content.git
+      subpath: docs/content
+      destination: nuxt-content
 
-loaders:
-  - path: nuxt
-    type: frontmatter
+    - type: git
+      repo: https://github.com/odoo/documentation.git
+      destination: odoo
+
+    - type: http
+      url: https://raw.githubusercontent.com/adomi-io/odoo/refs/heads/19.0/README.md
+      filename: odoo_readme.md
+      destination: readme-examples
+
+    - type: http
+      url: https://raw.githubusercontent.com/adomi-io/listing-lab/refs/heads/master/README.md
+      filename: listing_lab_readme.md
+      destination: readme_examples
+
+    - type: http
+      url: https://raw.githubusercontent.com/atinux/nuxt-auth-utils/main/README.md
+      filename: nuxt-auth-utils.md
+      destination: nuxt-auth-utils
