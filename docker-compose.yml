@@ -38,20 +38,24 @@ services:
     build:
       context: src/file_loader
       dockerfile: Dockerfile
+    restart: unless-stopped
     environment:
       - MEILISEARCH_HOST=http://meilisearch:7700
       - DOCS_DIR=/volumes/input
       - MEILISEARCH_MASTER_KEY=${MEILISEARCH_MASTER_KEY}
       - CONFIG_FILE=/config/download.yml
+      - ENABLE_VECTOR_SEARCH="true"
+    env_file:
+      - .env
     volumes:
       - output_data:/volumes/input
       - ./data-sources.yml:/config/download.yml:ro
+      - hf-cache:/cache
     depends_on:
       downloader_web:
         condition: service_healthy
       meilisearch:
         condition: service_healthy
-    restart: unless-stopped
 
   mcp_server:
     build:
@@ -74,3 +78,4 @@ services:
 volumes:
   output_data:
   meilisearch_data:
+  hf-cache:
