@@ -10,9 +10,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     HTTP_TIMEOUT_SECS=30 \
     PYTHONPATH=/app
 
+# Install git + GitHub CLI (gh)
 RUN set -eux; \
     apk add --no-cache \
       git \
+      github-cli \
       ca-certificates \
       bash \
       curl \

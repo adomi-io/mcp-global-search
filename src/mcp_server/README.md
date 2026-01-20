@@ -10,15 +10,17 @@ The server supports HTTP transport by default (good for Docker) and can also run
 
 - 📚 Purpose‑built for “user memory” — search only what the user loaded
 - 🔐 Auth via `MEILISEARCH_MASTER_KEY` (required)
-- 🧭 Safe index filtering with `MEILISEARCH_ALLOWED_INDEXES` (optional allow‑list)
+- 🧭 Index filtering with `MEILISEARCH_ALLOWED_INDEXES` (optional allow‑list) and per‑request `?allowed_indexes=...` to further restrict
 - 📂 File fetch helper to retrieve exact source text for grounding
 - 🚦 Simple to run standalone or via Docker Compose
+- 🧩 Extra MCP surfaces: resources and prompts in addition to tools
 
 ## What you can do
 
 - List available Meilisearch indexes that represent the user’s loaded documents
 - Search an index (or run multiple searches at once)
 - Fetch the exact file contents referenced by a search hit
+- Use built‑in MCP resources and prompts to guide safer flows in clients
 
 ## Getting started
 
@@ -51,14 +53,6 @@ export MEILISEARCH_ALLOWED_INDEXES="nuxt docs"   # optional
 docker compose up -d --build mcp_server
 ```
 
-### Running from source
-
-If you want to run the MCP server directly (outside Docker):
-
-```
-python3 src/mcp_server/meili_mcp.py
-```
-
 By default, it serves MCP over HTTP on `0.0.0.0:8000`. To use stdio instead, set `MCP_TRANSPORT=stdio`.
 
 Required environment variables must be present in your shell (see the table below).
@@ -82,7 +76,45 @@ MCP_TRANSPORT=stdio python3 src/mcp_server/meili_mcp.py
 
 Your MCP‑capable client/tooling can connect to the HTTP endpoint or spawn the process for stdio depending on its capabilities.
 
-## Tools exposed by the MCP
+## MCP surfaces
+
+This server exposes three kinds of MCP surfaces that your client may use:
+
+- Tools (RPC‑style calls)
+- Resources (readable URIs)
+- Prompts (pre‑authored message templates)
+
+Not all clients support all surfaces; the tools are universally useful, while resources/prompts enable safer, guided workflows.
+
+### Resources
+
+The following resources are available to read via MCP:
+
+- `meili://indexes{?limit,offset,allowed_indexes}`
+  - Lists available Meilisearch indexes (filtered by env allow‑list and optional per‑request `allowed_indexes`).
+  - Returns the Meilisearch `/indexes` JSON. Each item is augmented with metadata when available:
+    - `destination`: details from the shared config destination for that index UID
+    - `collections`: any collections that include this UID (from shared config)
+
+- `files://{path*}`
+  - Fetch the exact bytes/text for a file under `FILES_ROOT`.
+  - Respects path traversal protections and the allow‑list rules described below.
+
+Examples (conceptual — use your MCP client’s resource read API):
+
+```
+meili://indexes?limit=50&allowed_indexes=docs,nuxt
+files://nuxt/some/file.md
+```
+
+### Prompts
+
+Two prompts are included to encourage safe and grounded usage:
+
+- `memory_search(query: str)` — guides an assistant to discover allowed indexes, then search, then fetch files for grounding.
+- `memory_answer_citation_first(question: str)` — encourages quoting from primary sources first; if none are retrievable, be explicit about uncertainty.
+
+### Tools
 
 All tools require a valid Meilisearch master key via `MEILISEARCH_MASTER_KEY`.
 
@@ -125,6 +157,7 @@ Fetch the exact source bytes/text for a file under `FILES_ROOT` (used to ground 
 - Returns UTF‑8 text when possible; otherwise Base64 bytes
 - Blocks path traversal — the resolved path must remain under `FILES_ROOT`
 - If `MEILISEARCH_ALLOWED_INDEXES` is set, only files whose first path segment matches an allowed index are accessible (e.g., with `ALLOWED=["nuxt","docs"]`, `nuxt/…` is allowed).
+- If a per‑request `allowed_indexes` is provided (HTTP transport), it further restricts the accessible set to a subset of the ceiling.
 
 ## Environment variables (quick reference)
 
@@ -132,17 +165,25 @@ Fetch the exact source bytes/text for a file under `FILES_ROOT` (used to ground 
 |---|---|---|
 | `MEILISEARCH_HOST` | `http://meilisearch:7700` | Base URL for Meilisearch |
 | `MEILISEARCH_MASTER_KEY` | — | Required. Bearer token used for Meilisearch API calls |
-| `MEILISEARCH_ALLOWED_INDEXES` | empty | Optional allow‑list of index UIDs (space/comma/newline separated). Filters list/search and restricts file fetches by first path segment |
+| `MEILISEARCH_ALLOWED_INDEXES` | empty | Optional allow‑list of index UIDs (space/comma/newline separated). Acts as a ceiling. Filters list/search and restricts file fetches by first path segment |
 | `FILES_ROOT` | `/volumes/input` | Root directory of loaded files used by `get_document_file()` |
 | `MCP_TRANSPORT` | `http` | `http` or `stdio` |
 | `MCP_HOST` | `0.0.0.0` | HTTP bind host when `MCP_TRANSPORT=http` |
 | `MCP_PORT` | `8000` | HTTP bind port when `MCP_TRANSPORT=http` |
+| `MCP_MAX_Q_LEN` | `8000` | Max length (chars) for search query strings |
+| `MCP_MAX_FILE_BYTES` | `1000000` | Max bytes to return from `get_document_file()` before truncation |
 
 > [!TIP]
 > When running with the provided `docker-compose.yml`:
 > - `./output` is mounted read‑only at `/volumes/input`
 > - `MEILISEARCH_HOST` is set to `http://meilisearch:7700`
-> - You must set `MEILISEARCH_MASTER_KEY` in your shell (export) before starting compose
+> - You must set `MEILISEARCH_MASTER_KEY` in your shell (export) or your .env before starting compose
+
+## Allow‑lists and request‑level restrictions
+
+- `MEILISEARCH_ALLOWED_INDEXES` (env) is a ceiling allow‑list if set.
+- `allowed_indexes` (HTTP query parameter) can be provided per request to further restrict to a subset. If the ceiling is unset, this parameter acts as the only allow‑list for that request.
+- Both index discovery and search respect these rules. File fetching also checks the first path segment against the effective allow‑list.
 
 ## Typical data flow
 
@@ -158,11 +199,20 @@ If you change your allow‑list or other env vars, restart the service:
 docker compose restart mcp_server
 ```
 
+If you would like to update to the latest version of this script:
+
+```
+docker compose restart mcp_server
+```
+
 ## Troubleshooting
 
 - Missing/invalid master key: the server fails fast with `MEILISEARCH_MASTER_KEY is required but not set`
-- Can’t see indexes you expect: verify `MEILISEARCH_ALLOWED_INDEXES` (if set) and that Meilisearch contains those indexes
-- File fetch denied: when allow‑list is active, only files whose first path segment matches an allowed index are accessible
+- Can’t see indexes you expect: verify `MEILISEARCH_ALLOWED_INDEXES` (if set), any per‑request `allowed_indexes` you passed, and that Meilisearch contains those indexes
+- File fetch denied:
+  - When an allow‑list is active, only files whose first path segment matches an allowed index are accessible
+  - Ensure the `path` is under `FILES_ROOT` (no traversal outside is allowed)
+- Search rejected: if no indexes are allowed for the request, the server returns an informative error. Adjust env allow‑list or the request’s `allowed_indexes`.
 - Connection from client fails: confirm whether your client supports MCP over HTTP or stdio and configure accordingly
 
 ## Related services in this repo

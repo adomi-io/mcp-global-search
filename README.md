@@ -46,28 +46,97 @@ GID=1000
 
 ## Define your sources
 
-Edit `data-sources.yml` to describe what to download. A minimal example:
+Edit `data-sources.yml` to describe what to download. Use the unified `config:` shape. A minimal example:
 
 ```yaml
-include:
-  - "**/*.md"
-exclude:
-  - "**/pnpm-lock.yaml"
+config:
+  sources:
+    - type: git
+      repo: https://github.com/example/docs.git
+      subpath: docs
+      ref: main
+      destination: docs
 
-sources:
-  - type: git
-    repo: https://github.com/example/docs.git
-    subpath: docs
-    ref: main
-    destination: docs
+    - type: http
+      url: https://example.com/guide.md
+      filename: guide.md
+      destination: examples
+```
 
-  - type: http
-    url: https://example.com/guide.md
-    filename: guide.md
-    destination: examples
+Per-source filtering can be applied using `include`/`exclude` on individual source entries. For example, to exclude a lockfile from a Git source:
+
+```yaml
+config:
+  sources:
+    - type: git
+      repo: https://github.com/nitrojs/nitro.git
+      subpath: docs
+      destination: nitro
+      exclude:
+        - "pnpm-lock.yaml"
 ```
 
 See the Downloader README for the full schema and filtering rules: `src/downloader_web/README.md`.
+
+### Configuration schema
+
+```yaml
+config:
+  sources: []
+  loaders: []
+  destinations: {}
+  collections: {}
+```
+
+### Full configuration example
+
+```yaml
+config:
+  destinations:
+    docs:
+      description: |
+        Docs for the main project
+    guides:
+      description: |
+        Guides and tutorials
+
+  collections:
+    project:
+      description: |
+        Core project documentation
+      destinations:
+        - docs
+    learning:
+      description: |
+        Guides and tutorials
+      destinations:
+        - guides
+
+  loaders:
+    - path: guides
+      type: frontmatter
+
+  sources:
+    - type: git
+      repo: https://github.com/example/docs.git
+      subpath: docs
+      ref: main
+      destination: docs
+      include:
+        - "**/*.md"
+
+    - type: git
+      repo: https://github.com/example/guides.git
+      subpath: content
+      destination: guides
+      exclude:
+        - "**/pnpm-lock.yaml"
+
+    - type: http
+      url: https://example.com/guide.md
+      filename: getting-started.md
+      destination: guides
+```
 
 ## Start the stack
 

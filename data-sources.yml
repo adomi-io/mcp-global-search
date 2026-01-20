@@ -42,42 +42,38 @@ config:
 
   # These will be downloaded from the internet
   sources:
-#    - type: git
-#      repo: https://github.com/nuxt/nuxt.git
-#      subpath: docs
-#      destination: nuxt
-#
-#    - type: git
-#      repo: https://github.com/nitrojs/nitro.git
-#      subpath: docs
-#      destination: nitro
-#      exclude:
-#        - "pnpm-lock.yaml"
-#
-#    - type: git
-#      repo: https://github.com/nuxt/ui.git
-#      subpath: docs/content
-#      destination: nuxt-ui
-#
-#    - type: git
-#      repo: https://github.com/nuxt/content.git
-#      subpath: docs/content
-#      destination: nuxt-content
-#
-#    - type: http
-#      url: https://raw.githubusercontent.com/atinux/nuxt-auth-utils/main/README.md
-#      filename: nuxt-auth-utils.md
-#      destination: nuxt-auth-utils
-#
-#    - type: git
-#      repo: https://github.com/odoo/documentation.git
-#      destination: odoo
-#
-#    - type: git
-#      repo: https://github.com/odoo/owl.git
-#      subpath: docs
-#      destination: owl
+    - type: git
+      repo: https://github.com/nuxt/nuxt.git
+      subpath: docs
+      destination: nuxt
 
     - type: git
-      repo: https://github.com/adomi-io/odoo-enterprise.git
-      destination: odoo-enterprise
+      repo: https://github.com/nitrojs/nitro.git
+      subpath: docs
+      destination: nitro
+      exclude:
+        - "pnpm-lock.yaml"
+
+    - type: git
+      repo: https://github.com/nuxt/ui.git
+      subpath: docs/content
+      destination: nuxt-ui
+
+    - type: git
+      repo: https://github.com/nuxt/content.git
+      subpath: docs/content
+      destination: nuxt-content
+
+    - type: http
+      url: https://raw.githubusercontent.com/atinux/nuxt-auth-utils/main/README.md
+      filename: nuxt-auth-utils.md
+      destination: nuxt-auth-utils
+
+    - type: git
+      repo: https://github.com/odoo/documentation.git
+      destination: odoo
+
+    - type: git
+      repo: https://github.com/odoo/owl.git
+      subpath: docs
+      destination: owl

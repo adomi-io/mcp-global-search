@@ -3,7 +3,7 @@ Shared utilities usable by all apps (downloader_web, file_loader, mcp_server).
 
 Currently includes:
 - Config loading/normalization for data-sources.yml supporting a top-level
-  `config` key (new schema) while remaining compatible with the legacy schema.
+  `config` key schema.
 """
 
 from .config import (

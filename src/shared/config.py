@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 import yaml
 
@@ -21,22 +21,20 @@ def _default_config() -> Dict[str, Any]:
 
 def _normalize_config(raw: Dict[str, Any] | None) -> Dict[str, Any]:
     """
-    Support two shapes:
-    - New: { config: { sources: [...], loaders: [...], destinations: {...}, collections: {...} } }
-    - Legacy: { sources: [...], include: [...], exclude: [...], loaders: [...] }
+    Configuration schema shape:
+    { config: { sources: [...], loaders: [...], destinations: {...}, collections: {...} } }
 
-    We return a flattened dict with keys: sources, loaders, destinations, collections,
-    plus pass-through of legacy include/exclude if present (for backwards compatibility).
+    Normalization returns a flattened dict with keys: sources, loaders, destinations, collections.
     """
     if not raw:
         return _default_config()
 
-    # If top-level key 'config' exists, use it; otherwise treat the whole dict as the config body.
-    body: Dict[str, Any]
-    if isinstance(raw.get("config"), dict):
-        body = dict(raw["config"])  # shallow copy
-    else:
-        body = dict(raw)
+    body_raw = raw.get("config")
+    if not isinstance(body_raw, dict):
+        # Strict: require the new shape
+        return _default_config()
+
+    body: Dict[str, Any] = dict(body_raw)  # shallow copy
 
     out: Dict[str, Any] = _default_config()
 
@@ -52,12 +50,6 @@ def _normalize_config(raw: Dict[str, Any] | None) -> Dict[str, Any]:
 
     if isinstance(body.get("collections"), dict):
         out["collections"] = body.get("collections") or {}
-
-    # Legacy passthroughs (used by downloader_web filtering logic)
-    if isinstance(body.get("include"), list):
-        out["include"] = body.get("include") or []
-    if isinstance(body.get("exclude"), list):
-        out["exclude"] = body.get("exclude") or []
 
     return out
 
@@ -80,7 +72,7 @@ def load_raw_yaml(path: Optional[Path] = None) -> Dict[str, Any]:
 
 
 def load_config(path: Optional[Path] = None) -> Dict[str, Any]:
-    """Load and normalize the config according to the new schema."""
+    """Load and normalize the configuration schema."""
     raw = load_raw_yaml(path)
     return _normalize_config(raw)
 

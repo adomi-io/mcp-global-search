@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import base64
 import hashlib
 import logging
 import os
@@ -54,7 +55,6 @@ _refresh_lock = threading.Lock()
 # -----------------------------------------------------------------------------
 # Utilities
 # -----------------------------------------------------------------------------
-
 def sh(cmd: list[str], cwd: Path | None = None) -> str:
     logger.debug("Running: %s (cwd=%s)", " ".join(cmd), cwd)
 
@@ -68,18 +68,23 @@ def sh(cmd: list[str], cwd: Path | None = None) -> str:
 
     if proc.returncode != 0:
         out = proc.stdout or ""
-        token = (os.environ.get("GIT_TOKEN") or "").strip()
+
+        # redact both tokens
+        for env_name in ("GIT_TOKEN", "GH_TOKEN"):
+            token = (os.environ.get(env_name) or "").strip()
+            if token:
+                out = out.replace(token, "[REDACTED]")
+                # also redact any common "token in URL" form if it made it in
         safe_cmd = " ".join(cmd)
+        for env_name in ("GIT_TOKEN", "GH_TOKEN"):
+            token = (os.environ.get(env_name) or "").strip()
+            if token:
+                safe_cmd = safe_cmd.replace(token, "[REDACTED]")
 
-        if token:
-            safe_cmd = safe_cmd.replace(token, "[REDACTED]")
-            out = out.replace(token, "[REDACTED]")
-
-        raise RuntimeError(
-            f"Command failed ({proc.returncode}): {safe_cmd}\n{out}"
-        )
+        raise RuntimeError(f"Command failed ({proc.returncode}): {safe_cmd}\n{out}")
 
     return proc.stdout
+
 
 
 
@@ -113,9 +118,8 @@ def resolve_headers(headers: dict[str, Any]) -> dict[str, str]:
 
 def load_config() -> dict[str, Any]:
     """
-    Load the shared config. Supports new top-level `config` key and returns a
-    flattened dict with keys: sources, loaders, destinations, collections.
-    For backward compatibility, will also include legacy include/exclude if present.
+    Load the shared configuration and return a flattened dict with keys:
+    sources, loaders, destinations, collections.
     """
     return load_shared_config(CONFIG_PATH)
 
@@ -263,23 +267,59 @@ def copy_tree_contents(
 
             shutil.copy2(src_file, target)
 
+
 def git_cmd(repo: str, *args: str, cwd: Path | None = None) -> str:
     token = (os.environ.get("GIT_TOKEN") or "").strip()
-
     base: list[str] = ["git"]
 
-    if repo.startswith("https://"):
-        if not token:
-            raise RuntimeError(f"HTTPS repo requires GIT_TOKEN to be set: {repo}")
-        base += ["-c", f"http.extraHeader=Authorization: token {token}"]
+    if token and repo.startswith("http"):
+        username = (os.environ.get("GIT_USERNAME") or "x-access-token").strip()
+        basic = base64.b64encode(f"{username}:{token}".encode("utf-8")).decode("ascii")
+        base += ["-c", f"http.extraHeader=Authorization: Basic {basic}"]
 
     return sh([*base, *args], cwd=cwd)
 
+def gh_cmd(*args: str, cwd: Path | None = None) -> str:
+    """
+    Uses GH_TOKEN if available (falls back to GIT_TOKEN).
+    Uses a temporary process environment so `sh()` doesn't need an env= param.
+    """
+    token = (os.environ.get("GH_TOKEN")).strip()
 
+    if not token:
+        raise RuntimeError("gh requires GH_TOKEN (or GIT_TOKEN) to be set")
+
+    if not shutil.which("gh"):
+        raise RuntimeError("gh CLI not found in PATH")
+
+    # gh will automatically pick up GH_TOKEN
+    with _temp_environ(GH_TOKEN=token):
+        return sh(["gh", *args], cwd=cwd)
+
+
+def _is_github_repo(repo: str) -> bool:
+    r = repo.strip()
+
+    # SSH forms
+    if r.startswith("git@github.com:") or r.startswith("ssh://git@github.com/"):
+        return True
+
+    # HTTPS form
+    if r.startswith("http://") or r.startswith("https://"):
+        try:
+            return (urlparse(r).hostname or "").lower() == "github.com"
+        except Exception:
+            return False
+
+    # "OWNER/REPO" shorthand (best-effort)
+    if r.count("/") == 1 and "://" not in r and "@" not in r and ":" not in r:
+        return True
+
+    return False
 
 def download_git_source_into_destination(
     *,
-    session: requests.Session,
+    session: "requests.Session",
     source: dict[str, Any],
     destination: str,
     destination_staging: Path,
@@ -299,15 +339,26 @@ def download_git_source_into_destination(
     rm_rf(repo_dir)
     repo_dir.parent.mkdir(parents=True, exist_ok=True)
 
-    logger.info("git: repo=%s ref=%s subpath=%s -> destination=%s", repo, ref, subpath, destination)
+    use_gh = _is_github_repo(repo)
 
-    git_cmd(repo, "clone", "--depth=1", repo, str(repo_dir))
+    logger.info(
+        "git: repo=%s ref=%s subpath=%s -> destination=%s (use_gh=%s)",
+        repo, ref, subpath, destination, use_gh
+    )
+
+    if use_gh:
+        # Supports: owner/repo, https://github.com/owner/repo(.git), git@github.com:owner/repo.git
+        # Pass --depth=1 through to the underlying git clone:
+        gh_cmd("repo", "clone", repo, str(repo_dir), "--", "--depth=1")
+    else:
+        git_cmd(repo, "clone", "--depth=1", repo, str(repo_dir))
 
     if ref:
         git_cmd(repo, "fetch", "--depth=1", "origin", str(ref), cwd=repo_dir)
         git_cmd(repo, "checkout", "FETCH_HEAD", cwd=repo_dir)
 
     src_dir = (repo_dir / subpath) if subpath else repo_dir
+
     if not src_dir.exists():
         raise RuntimeError(f"subpath does not exist: repo={repo} subpath={subpath}")
 
@@ -586,8 +637,10 @@ def perform_refresh() -> dict[str, Any]:
             len(loaders),
         )
 
-    include_global = _norm_list(cfg.get("include", []) or [])
-    exclude_global = _norm_list(cfg.get("exclude", []) or [])
+    # Global include/exclude are no longer supported in the shared config.
+    # Use per-source include/exclude instead.
+    include_global: list[str] = []
+    exclude_global: list[str] = []
     by_destination = group_sources_by_destination(cfg)
 
     if not by_destination:
