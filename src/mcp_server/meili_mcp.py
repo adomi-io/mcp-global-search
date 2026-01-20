@@ -30,6 +30,7 @@ from fastmcp import FastMCP
 from fastmcp.prompts.prompt import Message
 from fastmcp.server.dependencies import get_http_request
 from pydantic import BaseModel, ConfigDict
+from shared.config import load_config as load_shared_config, get_destinations, get_collections
 from starlette.requests import Request
 
 
@@ -112,6 +113,49 @@ def _parse_allowed(raw: Optional[str]) -> List[str]:
 ENV_ALLOWED_INDEXES: List[str] = [s.lower() for s in _parse_allowed(_ENV_ALLOWED_RAW)]
 
 
+# ------------------------------
+# Config (shared) — destinations and collections for index metadata
+# ------------------------------
+
+def _load_shared_index_metadata() -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    try:
+        cfg = load_shared_config(Path(os.environ.get("CONFIG_FILE", "/config/download.yml")))
+        return get_destinations(cfg), get_collections(cfg)
+    except Exception:
+        # Be resilient if config not mounted
+        return {}, {}
+
+
+DESTINATIONS_META, COLLECTIONS_META = _load_shared_index_metadata()
+
+
+def _collections_for_uid(uid: str) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for name, meta in (COLLECTIONS_META or {}).items():
+        dests = meta.get("destinations") or []
+        if isinstance(dests, list) and uid in dests:
+            out.append({
+                "name": name,
+                **{k: v for k, v in meta.items() if k != "destinations"},
+            })
+    return out
+
+
+def _augment_index_item(item: Dict[str, Any]) -> Dict[str, Any]:
+    uid = (item.get("uid") or item.get("UID") or item.get("Uid") or "").strip()
+    if not uid:
+        return item
+    dest_meta = (DESTINATIONS_META or {}).get(uid, {}) if isinstance(DESTINATIONS_META, dict) else {}
+    if dest_meta:
+        item.setdefault("destination", {})
+        # Do not overwrite standard meili keys; nest under 'destination'
+        item["destination"].update(dest_meta)
+    cols = _collections_for_uid(uid)
+    if cols:
+        item["collections"] = cols
+    return item
+
+
 def _deny(
     message: str,
     *,
@@ -187,6 +231,39 @@ def _request_allowed_indexes() -> Optional[Set[str]]:
     )
 
 
+def _request_collections() -> Optional[Set[str]]:
+    """
+    Reads ?collection=... (comma/newline/space separated) and returns a set of
+    destination names included by these collections, according to shared config.
+    """
+    try:
+        req = get_http_request()
+        if req is None:
+            return None
+        req = cast(Request, req)
+    except Exception:
+        return None
+
+    if "collection" not in req.query_params:
+        return None
+
+    raw = req.query_params.get("collection", "")
+    names = [s for s in _parse_allowed(raw)]
+    if not names:
+        return set()
+
+    # Map collection names -> destinations
+    dests: Set[str] = set()
+    for nm in names:
+        meta = (COLLECTIONS_META or {}).get(nm)
+        if isinstance(meta, dict):
+            ds = meta.get("destinations") or []
+            for d in ds:
+                if isinstance(d, str):
+                    dests.add(d.lower())
+    return dests
+
+
 def _effective_allowed_indexes() -> Optional[Set[str]]:
     """
     Effective allowlist for *this request*.
@@ -202,21 +279,26 @@ def _effective_allowed_indexes() -> Optional[Set[str]]:
       - If ENV is empty (unrestricted), query param becomes the restriction when present.
     """
     env_set: Optional[Set[str]]
+    env_set = set(ENV_ALLOWED_INDEXES) if ENV_ALLOWED_INDEXES else None
 
-    if ENV_ALLOWED_INDEXES:
-        env_set = set(ENV_ALLOWED_INDEXES)
-    else:
-        env_set = None
+    # Next: collections restriction (if provided)
+    coll_set = _request_collections()
+    base: Optional[Set[str]] = env_set
+    if coll_set is not None:
+        if base is None:
+            base = coll_set
+        else:
+            base = base.intersection(coll_set)
 
+    # Finally: explicit allowed_indexes parameter
     req_set = _request_allowed_indexes()
+    if req_set is not None:
+        if base is None:
+            base = req_set
+        else:
+            base = base.intersection(req_set)
 
-    if req_set is None:
-        return env_set
-
-    if env_set is None:
-        return req_set
-
-    return env_set.intersection(req_set)
+    return base
 
 
 def _is_allowed_index(uid: str) -> bool:
@@ -270,10 +352,16 @@ async def lifespan(_: FastMCP):
     """
     _require_master_key()
 
+    # Set auth headers for Meilisearch. Some deployments require
+    # Authorization: Bearer, while others accept X-Meili-API-Key.
+    # Send Authorization always, and include the configured legacy header
+    # for maximum compatibility.
     headers = {
         "Content-Type": "application/json",
-        MEILI_AUTH_HEADER: MEILISEARCH_MASTER_KEY,
+        "Authorization": f"Bearer {MEILISEARCH_MASTER_KEY}",
     }
+    if MEILI_AUTH_HEADER and MEILI_AUTH_HEADER.lower() != "authorization":
+        headers[MEILI_AUTH_HEADER] = MEILISEARCH_MASTER_KEY
 
     STATE["client"] = httpx.AsyncClient(
         base_url=MEILISEARCH_HOST,
@@ -423,10 +511,19 @@ async def meili_indexes_resource(limit: int = 200, offset: int = 0) -> Dict[str,
                         uid = item.get("uid") or item.get("UID") or item.get("Uid")
 
                         if isinstance(uid, str) and uid.lower() in allowed:
-                            filtered.append(item)
+                            # Augment item with destination + collections metadata
+                            filtered.append(_augment_index_item(item))
 
                 data["results"] = filtered
                 data["total"] = len(filtered)
+        else:
+            # No allowlist active; still augment items if list present
+            results = data.get("results")
+            if isinstance(results, list):
+                data["results"] = [
+                    _augment_index_item(item) if isinstance(item, dict) else item
+                    for item in results
+                ]
 
         return data
 
@@ -473,6 +570,17 @@ async def meili_search_resource(uid: str, q: str, limit: int = 20, offset: int =
 
     if isinstance(data, dict):
         data.setdefault("uid", uid)
+        # Augment response with destination + collections metadata for this uid
+        try:
+            meta = _augment_index_item({"uid": uid})
+            dest = meta.get("destination")
+            cols = meta.get("collections")
+            if dest:
+                data["destination"] = dest
+            if cols:
+                data["collections"] = cols
+        except Exception:
+            pass
 
         return data
 
@@ -606,7 +714,7 @@ async def list_document_indexes(limit: int = 200, offset: int = 0) -> ToolResult
         results = data.get("results")
 
         if isinstance(results, list):
-            filtered: List[Any] = []
+            filtered: List[Dict[str, Any]] = []
 
             for item in results:
                 if isinstance(item, dict):
@@ -618,10 +726,16 @@ async def list_document_indexes(limit: int = 200, offset: int = 0) -> ToolResult
             data["results"] = filtered
             data["total"] = len(filtered)
 
-    data.setdefault(
-        "ok",
-        True,
-    )
+    # Augment each index item with destination/collections metadata from shared config
+    results = data.get("results")
+    if isinstance(results, list):
+        augmented: List[Dict[str, Any]] = []
+        for item in results:
+            if isinstance(item, dict):
+                augmented.append(_augment_index_item(dict(item)))
+        data["results"] = augmented
+
+    data.setdefault("ok", True)
 
     return MCPData(
         **data,

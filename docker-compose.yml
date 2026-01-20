@@ -18,8 +18,8 @@ services:
 
   downloader_web:
     build:
-      context: src/downloader_web
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: src/downloader_web/Dockerfile
     environment:
       - CONFIG_FILE=/config/download.yml
       - DOCS_ROOT=/volumes/output
@@ -36,8 +36,8 @@ services:
 
   file_loader:
     build:
-      context: src/file_loader
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: src/file_loader/Dockerfile
     restart: unless-stopped
     environment:
       - MEILISEARCH_HOST=http://meilisearch:7700
@@ -59,8 +59,8 @@ services:
 
   mcp_server:
     build:
-      context: ./src/mcp_server
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: src/mcp_server/Dockerfile
     ports:
       - "8000:8000"
     environment:
@@ -68,8 +68,10 @@ services:
       - MEILISEARCH_MASTER_KEY=${MEILISEARCH_MASTER_KEY}
       - MEILISEARCH_ALLOWED_INDEXES=${MEILISEARCH_ALLOWED_INDEXES:-}
       - FILES_ROOT=/volumes/input
+      - CONFIG_FILE=/config/download.yml
     volumes:
       - output_data:/volumes/input:ro
+      - ./data-sources.yml:/config/download.yml:ro
     depends_on:
       meilisearch:
         condition: service_healthy

@@ -16,6 +16,7 @@ from typing import Any
 import requests
 import yaml
 from flask import Flask, jsonify
+from shared.config import load_config as load_shared_config
 
 # -----------------------------------------------------------------------------
 # Config / constants
@@ -103,21 +104,12 @@ def resolve_headers(headers: dict[str, Any]) -> dict[str, str]:
 
 
 def load_config() -> dict[str, Any]:
-    if not CONFIG_PATH.exists():
-        return {
-            "sources": [],
-            "include": [],
-            "exclude": [],
-            "loaders": []
-        }
-
-    with CONFIG_PATH.open("r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {
-            "sources": [],
-            "include": [],
-            "exclude": [],
-            "loaders": []
-        }
+    """
+    Load the shared config. Supports new top-level `config` key and returns a
+    flattened dict with keys: sources, loaders, destinations, collections.
+    For backward compatibility, will also include legacy include/exclude if present.
+    """
+    return load_shared_config(CONFIG_PATH)
 
 
 def _norm_list(v: Any) -> list[str]:
@@ -396,7 +388,7 @@ def build_destination_staging(
 # Apply (no git; rsync dry-run gate)
 # -----------------------------------------------------------------------------
 
-def rsync_plan_and_apply(src_dir: Path, dst_dir: Path) -> list[dict[str, str]]:
+def rsync_plan_and_apply(src_dir: Path, dst_dir: Path, *, delete: bool = True) -> list[dict[str, str]]:
     """
     Applies staging -> destination subtree, but only runs if a dry-run indicates changes.
     Deletions are scoped to dst_dir only.
@@ -406,7 +398,7 @@ def rsync_plan_and_apply(src_dir: Path, dst_dir: Path) -> list[dict[str, str]]:
     cmd = [
         "rsync",
         "-r",
-        "--delete",
+        *( ["--delete"] if delete else [] ),
         "--checksum",
         "--no-times",
         "--no-perms",
@@ -496,7 +488,35 @@ def refresh_one_destination(
         exclude_global=exclude_global,
     )
 
-    changes = rsync_plan_and_apply(staging_root, work_tree)
+    # Default strategy is "merge" (delete extras). Allow overrides via destinations meta.
+    delete = True
+
+    try:
+        cfg = load_config()
+        destinations_meta = (cfg.get("destinations") or {}) if isinstance(cfg.get("destinations"), dict) else {}
+        meta = destinations_meta.get(destination, {}) if isinstance(destinations_meta, dict) else {}
+        strategy = str(meta.get("strategy", "merge")).strip().lower()
+        # Support both "merge" and historical "merge-source"
+        if strategy in ("append",):
+            delete = False
+        elif strategy in ("none",):
+            # Skip applying any file updates; just report current state
+            rm_rf(staging_root)
+            return {
+                "destination": destination,
+                "counts": {"A": 0, "M": 0, "D": 0},
+                "changes_sample": [],
+                "work_tree": str(work_tree),
+                "note": "strategy=none (no sync)",
+            }
+        else:
+            # merge / merge-source => delete extras
+            delete = True
+    except Exception:
+        # If anything goes wrong reading meta, default to merge behavior
+        delete = True
+
+    changes = rsync_plan_and_apply(staging_root, work_tree, delete=delete)
 
     rm_rf(staging_root)
 

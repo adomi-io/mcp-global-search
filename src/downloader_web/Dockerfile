@@ -7,7 +7,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     CONFIG_FILE=/config/download.yml \
     PORT=8080 \
     MAX_WORKERS=4 \
-    HTTP_TIMEOUT_SECS=30
+    HTTP_TIMEOUT_SECS=30 \
+    PYTHONPATH=/app
 
 RUN set -eux; \
     apk add --no-cache \
@@ -19,7 +20,9 @@ RUN set -eux; \
     pip install --no-cache-dir Flask PyYAML requests gunicorn
 
 WORKDIR /app
-COPY app.py /app/app.py
+# Copy shared utilities package and app
+COPY src/shared /app/shared
+COPY src/downloader_web/app.py /app/app.py
 
 EXPOSE 8080
 

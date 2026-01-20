@@ -1,41 +1,79 @@
-sources:
-  - type: git
-    repo: https://github.com/nuxt/nuxt.git
-    subpath: docs
-    destination: nuxt
+config:
+  # This lets you add additional documentation to each destination folder.
+  # You can add arbitrary keys to this, and they will be sent back
+  # to the MCP server when it asks for collections.
+  # This should be used to instruct the LLM when to use this collection
+  destinations:
+    nuxt:
+      description: |
+        Nuxt Documentation
+    nitro:
+      description: |
+        Nuxt Nitro documentation
 
-  - type: git
-    repo: https://github.com/nitrojs/nitro.git
-    subpath: docs
-    destination: nitro
-    exclude:
-      - "pnpm-lock.yaml"
+  # This is used by the mcp_server, which allows the end
+  # user to select collections via ?collection=nuxt. It will have access to the related destination folders.
+  collections:
+    examples:
+      description: |
+        Personal examples of collections
+      destinations:
+        - readme-examples
+    nuxt:
+      description: |
+        Nuxt
+      destinations:
+        - nuxt
+        - nitro
+        - nuxt-ui
+        - nuxt-content
+    odoo:
+      description: |
+        Odoo
+      destinations:
+        - owl
 
-  - type: git
-    repo: https://github.com/nuxt/ui.git
-    subpath: docs/content
-    destination: nuxt-ui
+  # This is used by the file_loader to parse each source folder. It will force files of a specific
+  # directory to use a specific loader.
+  loaders:
+     # Force all the files in this directory to use Frontmatter filetypes
+    - path: nuxt
+      type: frontmatter
 
-  - type: git
-    repo: https://github.com/nuxt/content.git
-    subpath: docs/content
-    destination: nuxt-content
+  # These will be downloaded from the internet
+  sources:
+    - type: git
+      repo: https://github.com/nuxt/nuxt.git
+      subpath: docs
+      destination: nuxt
 
-  - type: git
-    repo: https://github.com/odoo/documentation.git
-    destination: odoo
+    - type: git
+      repo: https://github.com/nitrojs/nitro.git
+      subpath: docs
+      destination: nitro
+      exclude:
+        - "pnpm-lock.yaml"
 
-  - type: http
-    url: https://raw.githubusercontent.com/adomi-io/odoo/refs/heads/19.0/README.md
-    filename: odoo_readme.md
-    destination: readme_examples
+    - type: git
+      repo: https://github.com/nuxt/ui.git
+      subpath: docs/content
+      destination: nuxt-ui
 
-  - type: http
-    url: https://raw.githubusercontent.com/adomi-io/listing-lab/refs/heads/master/README.md
-    filename: listing_lab_readme.md
-    destination: readme_examples
+    - type: git
+      repo: https://github.com/nuxt/content.git
+      subpath: docs/content
+      destination: nuxt-content
 
-  - type: http
-    url: https://raw.githubusercontent.com/atinux/nuxt-auth-utils/main/README.md
-    filename: nuxt-auth-utils.md
-    destination: nuxt-auth-utils
+    - type: http
+      url: https://raw.githubusercontent.com/atinux/nuxt-auth-utils/main/README.md
+      filename: nuxt-auth-utils.md
+      destination: nuxt-auth-utils
+
+    - type: git
+      repo: https://github.com/odoo/documentation.git
+      destination: odoo
+
+    - type: git
+      repo: https://github.com/odoo/owl.git
+      subpath: docs
+      destination: owl

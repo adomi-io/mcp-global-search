@@ -11,7 +11,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     MEILI_EMBEDDER_NAME=openai \
     OPENAI_EMBED_MODEL=text-embedding-3-small \
     CHUNK_SIZE=1200 \
-    CHUNK_OVERLAP=150
+    CHUNK_OVERLAP=150 \
+    PYTHONPATH=/app
 
 RUN set -eux; \
     apt-get update; \
@@ -25,6 +26,7 @@ RUN set -eux; \
       langchain-text-splitters
 
 WORKDIR /app
-COPY loader.py /app/loader.py
+COPY src/shared /app/shared
+COPY src/file_loader/loader.py /app/loader.py
 
 CMD ["python", "/app/loader.py"]

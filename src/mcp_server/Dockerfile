@@ -5,7 +5,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     MEILISEARCH_HOST=http://meilisearch:7700 \
     MCP_TRANSPORT=http \
     MCP_HOST=0.0.0.0 \
-    MCP_PORT=8000
+    MCP_PORT=8000 \
+    PYTHONPATH=/app
 
 RUN set -eux; \
     apk add --no-cache ca-certificates bash curl; \
@@ -13,6 +14,7 @@ RUN set -eux; \
 
 WORKDIR /app
 
-COPY meili_mcp.py /app/meili_mcp.py
+COPY src/shared /app/shared
+COPY src/mcp_server/meili_mcp.py /app/meili_mcp.py
 
 ENTRYPOINT ["python", "/app/meili_mcp.py"]

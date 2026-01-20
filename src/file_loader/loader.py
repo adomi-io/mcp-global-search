@@ -47,11 +47,10 @@ from watchdog.events import FileSystemEventHandler
 
 from langchain_community.document_loaders import TextLoader, CSVLoader
 from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+import yaml
+from shared.config import load_config as load_shared_config
 
-try:
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
-except Exception:  # pragma: no cover
-    from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 
 # ----------------------------
@@ -141,6 +140,7 @@ def sanitize_index_uid(uid: str) -> str:
     uid = (uid or "").strip().lower()
     uid = re.sub(r"[^a-z0-9_-]+", "-", uid)
     uid = re.sub(r"-{2,}", "-", uid).strip("-")
+
     return uid
 
 
@@ -184,18 +184,99 @@ def allowed_file(path: Path) -> bool:
     return True
 
 
+_LOADER_RULES: list[dict[str, str]] | None = None
+
+
+def _load_loader_rules() -> list[dict[str, str]]:
+    global _LOADER_RULES
+    if _LOADER_RULES is not None:
+        return _LOADER_RULES
+    try:
+        cfg = load_shared_config(Path(os.environ.get("CONFIG_FILE", "/config/download.yml")))
+        rules = cfg.get("loaders") or []
+        out: list[dict[str, str]] = []
+        if isinstance(rules, list):
+            for r in rules:
+                if isinstance(r, dict):
+                    p = str(r.get("path", "")).strip().strip("/")
+                    t = str(r.get("type", "")).strip().lower()
+                    if p and t:
+                        out.append({"path": p, "type": t})
+        _LOADER_RULES = out
+        return out
+    except Exception:
+        _LOADER_RULES = []
+        return _LOADER_RULES
+
+
+class FrontmatterTextLoader:
+    """
+    Minimal frontmatter-aware loader: parses YAML frontmatter between --- markers
+    and attaches it to Document.metadata under key 'frontmatter'.
+    """
+
+    def __init__(self, file_path: str, encoding: str = "utf-8"):
+        self.file_path = file_path
+        self.encoding = encoding
+
+    def load(self) -> list[Document]:
+        p = Path(self.file_path)
+        text = p.read_text(encoding=self.encoding, errors="ignore")
+        fm: dict[str, any] | None = None
+        body = text
+        if text.startswith("---\n"):
+            try:
+                end = text.find("\n---\n", 4)
+                if end != -1:
+                    fm_raw = text[4:end]
+                    body = text[end + 5 :]
+                    fm = yaml.safe_load(fm_raw) or {}
+            except Exception:
+                fm = None
+        meta = {"frontmatter": fm} if fm else {}
+        return [Document(page_content=body, metadata=meta)]
+
+
+def _rule_matches(rule: dict[str, str], path: Path) -> bool:
+    try:
+        rel = path.relative_to(DOCS_DIR)
+    except Exception:
+        return False
+    # Rule path is relative first segment prefix match
+    prefix = (rule.get("path") or "").strip().strip("/")
+    if not prefix:
+        return False
+    parts = list(rel.parts)
+    if not parts:
+        return False
+    return parts[0] == prefix or str(rel).startswith(prefix + "/")
+
+
 def choose_loader(path: Path):
+    # First, honor loader rules from shared config
+    for rule in _load_loader_rules():
+        if _rule_matches(rule, path):
+            t = rule.get("type")
+            if t == "frontmatter":
+                return FrontmatterTextLoader(file_path=str(path), encoding="utf-8")
+            # future: add more types
+            break
+
     ext = path.suffix.lower()
+
     if ext == ".csv":
         return CSVLoader(file_path=str(path), encoding="utf-8", csv_args={"delimiter": ","})
+
     return TextLoader(file_path=str(path), encoding="utf-8", autodetect_encoding=True)
 
 
 def file_hash_for(path: Path) -> str:
     h = hashlib.sha1()
+
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
+
     return h.hexdigest()
 
 
