@@ -23,6 +23,8 @@ services:
     environment:
       - CONFIG_FILE=/config/download.yml
       - DOCS_ROOT=/volumes/output
+    env_file:
+      - .env
     volumes:
       - output_data:/volumes/output
       - ./data-sources.yml:/config/download.yml:ro

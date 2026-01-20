@@ -26,13 +26,11 @@ PORT = int(os.environ.get("PORT", "8080"))
 DOCS_ROOT = Path(os.environ.get("DOCS_ROOT", "/volumes/output"))
 STATE_ROOT = Path(os.environ.get("STATE_ROOT", "/volumes/state"))
 CONFIG_PATH = Path(os.environ.get("CONFIG_FILE", "/config/download.yml"))
-
 READY_MARKER = DOCS_ROOT / ".ready"
-
 MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "4"))
 HTTP_TIMEOUT_SECS = int(os.environ.get("HTTP_TIMEOUT_SECS", "30"))
-
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
+GIT_TOKEN = os.environ.get("GIT_TOKEN", "").strip()
 
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL, logging.INFO),
@@ -59,6 +57,7 @@ _refresh_lock = threading.Lock()
 
 def sh(cmd: list[str], cwd: Path | None = None) -> str:
     logger.debug("Running: %s (cwd=%s)", " ".join(cmd), cwd)
+
     proc = subprocess.run(
         cmd,
         cwd=str(cwd) if cwd else None,
@@ -68,11 +67,20 @@ def sh(cmd: list[str], cwd: Path | None = None) -> str:
     )
 
     if proc.returncode != 0:
+        out = proc.stdout or ""
+        token = (os.environ.get("GIT_TOKEN") or "").strip()
+        safe_cmd = " ".join(cmd)
+
+        if token:
+            safe_cmd = safe_cmd.replace(token, "[REDACTED]")
+            out = out.replace(token, "[REDACTED]")
+
         raise RuntimeError(
-            f"Command failed ({proc.returncode}): {' '.join(cmd)}\n{proc.stdout}"
+            f"Command failed ({proc.returncode}): {safe_cmd}\n{out}"
         )
 
     return proc.stdout
+
 
 
 def rm_rf(path: Path) -> None:
@@ -255,6 +263,19 @@ def copy_tree_contents(
 
             shutil.copy2(src_file, target)
 
+def git_cmd(repo: str, *args: str, cwd: Path | None = None) -> str:
+    token = (os.environ.get("GIT_TOKEN") or "").strip()
+
+    base: list[str] = ["git"]
+
+    if repo.startswith("https://"):
+        if not token:
+            raise RuntimeError(f"HTTPS repo requires GIT_TOKEN to be set: {repo}")
+        base += ["-c", f"http.extraHeader=Authorization: token {token}"]
+
+    return sh([*base, *args], cwd=cwd)
+
+
 
 def download_git_source_into_destination(
     *,
@@ -266,7 +287,7 @@ def download_git_source_into_destination(
     include_global: list[str],
     exclude_global: list[str],
 ) -> None:
-    repo = source["repo"]
+    repo = str(source["repo"])
     ref = source.get("ref")
     subpath = source.get("subpath", "") or ""
     include_source = _norm_list(source.get("include", []) or [])
@@ -276,19 +297,17 @@ def download_git_source_into_destination(
     repo_dir = repos_root / f"repo_{key}"
 
     rm_rf(repo_dir)
-
     repo_dir.parent.mkdir(parents=True, exist_ok=True)
 
     logger.info("git: repo=%s ref=%s subpath=%s -> destination=%s", repo, ref, subpath, destination)
 
-    sh(["git", "clone", "--depth=1", repo, str(repo_dir)])
+    git_cmd(repo, "clone", "--depth=1", repo, str(repo_dir))
 
     if ref:
-        sh(["git", "fetch", "--depth=1", "origin", str(ref)], cwd=repo_dir)
-        sh(["git", "checkout", "FETCH_HEAD"], cwd=repo_dir)
+        git_cmd(repo, "fetch", "--depth=1", "origin", str(ref), cwd=repo_dir)
+        git_cmd(repo, "checkout", "FETCH_HEAD", cwd=repo_dir)
 
-    src_dir = repo_dir / subpath if subpath else repo_dir
-
+    src_dir = (repo_dir / subpath) if subpath else repo_dir
     if not src_dir.exists():
         raise RuntimeError(f"subpath does not exist: repo={repo} subpath={subpath}")
 
@@ -301,7 +320,6 @@ def download_git_source_into_destination(
         include_source=include_source,
         exclude_source=exclude_source,
     )
-
 
 def download_http_source_into_destination(
     *,
