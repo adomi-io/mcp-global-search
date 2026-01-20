@@ -1,12 +1,8 @@
-# Top level config key added
 config:
-
-  # This is used by mcp_server and file_loader.
-  # file loader:
-  ## The strategy dictates how we merge the folders.
-  # mcp_server
-  ## The fields under the collection name are merged into the result when the agent makes a request for all indexes
-  ## or makes a request for more details about a single index
+  # This lets you add additional documentation to each destination folder.
+  # You can add arbitrary keys to this, and they will be sent back
+  # to the MCP server when it asks for collections.
+  # This should be used to instruct the LLM when to use this collection
   destinations:
     nuxt:
       description: |
@@ -15,9 +11,8 @@ config:
       description: |
         Nuxt Nitro documentation
 
-  # This is used by the mcp_server, and should be another GET parameter, which allows the end
-  # user to select collections. This should work in conjunction with the selected indexes.
-  # The .env takes priority, then the collection, then the selected indexes.
+  # This is used by the mcp_server, which allows the end
+  # user to select collections via ?collection=nuxt. It will have access to the related destination folders.
   collections:
     examples:
       description: |
@@ -38,11 +33,12 @@ config:
       destinations:
         - owl
 
-  # This is used by the file_loader to parse each source folder. It will force files a specific
-  # directory to use a specific loader. This should, like the other scripts, support a whitelist and blacklist
+  # This is used by the file_loader to parse each source folder. It will force files of a specific
+  # directory to use a specific loader.
   loaders:
+     # Force all the files in this directory to use Frontmatter filetypes
     - path: nuxt
-      type: frontmatter # Force all the files in this directory to use Frontmatter filetypes
+      type: frontmatter
 
   # These will be downloaded from the internet
   sources:
@@ -68,6 +64,11 @@ config:
       subpath: docs/content
       destination: nuxt-content
 
+    - type: http
+      url: https://raw.githubusercontent.com/atinux/nuxt-auth-utils/main/README.md
+      filename: nuxt-auth-utils.md
+      destination: nuxt-auth-utils
+
     - type: git
       repo: https://github.com/odoo/documentation.git
       destination: odoo
@@ -76,18 +77,3 @@ config:
       repo: https://github.com/odoo/owl.git
       subpath: docs
       destination: owl
-
-    - type: http
-      url: https://raw.githubusercontent.com/adomi-io/odoo/refs/heads/19.0/README.md
-      filename: odoo_readme.md
-      destination: readme-examples
-
-    - type: http
-      url: https://raw.githubusercontent.com/adomi-io/listing-lab/refs/heads/master/README.md
-      filename: listing_lab_readme.md
-      destination: readme_examples
-
-    - type: http
-      url: https://raw.githubusercontent.com/atinux/nuxt-auth-utils/main/README.md
-      filename: nuxt-auth-utils.md
-      destination: nuxt-auth-utils
