@@ -22,6 +22,7 @@ from __future__ import annotations
 import base64
 import os
 from contextlib import asynccontextmanager
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union, cast
 
@@ -29,6 +30,7 @@ import httpx
 from fastmcp import FastMCP
 from fastmcp.prompts.prompt import Message
 from fastmcp.server.dependencies import get_http_request
+import json
 from pydantic import BaseModel, ConfigDict
 from shared.config import load_config as load_shared_config, get_destinations, get_collections
 from starlette.requests import Request
@@ -87,10 +89,70 @@ MAX_LIST_INDEXES_LIMIT = int(os.getenv("MCP_MAX_LIST_INDEXES_LIMIT", "500"))
 MAX_Q_LEN = int(os.getenv("MCP_MAX_Q_LEN", "8000"))
 MAX_FILE_BYTES = int(os.getenv("MCP_MAX_FILE_BYTES", "1000000"))  # 1MB default
 
+# Logging config
+LOG_LEVEL = (os.getenv("MCP_LOG_LEVEL") or os.getenv("LOG_LEVEL") or "INFO").upper()
+
+class ExtrasJSONFormatter(logging.Formatter):
+    _skip = {
+        "name","msg","args","levelname","levelno","pathname","filename","module",
+        "exc_info","exc_text","stack_info","lineno","funcName","created","msecs",
+        "relativeCreated","thread","threadName","processName","process","message"
+    }
+
+    def format(self, record: logging.LogRecord) -> str:
+        base = super().format(record)
+        extras = {k: v for k, v in record.__dict__.items() if k not in self._skip}
+        return base + (f" | {json.dumps(extras, default=str)}" if extras else "")
+
+logger = logging.getLogger("meili_mcp")
+handler = logging.StreamHandler()
+
+handler.setFormatter(ExtrasJSONFormatter("%(asctime)s %(levelname)s [%(name)s] %(message)s"))
+
+logger.addHandler(handler)
+handler.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+logger.propagate = False
+
+logger.info(
+    "meili_mcp logging configured",
+    extra={
+        "LOG_LEVEL": LOG_LEVEL,
+        "logger_level": logger.getEffectiveLevel(),
+        "handler_level": handler.level,
+    },
+)
 
 # ------------------------------
 # Helpers
 # ------------------------------
+
+def _meili_bytes(resp: httpx.Response) -> int:
+    try:
+        return len(resp.content or b"")
+    except Exception:
+        return 0
+
+
+def _meili_result_count(payload: Any) -> int:
+    try:
+        if isinstance(payload, dict):
+            # /indexes -> results
+            if isinstance(payload.get("results"), list):
+                return len(payload.get("results") or [])
+            # /search -> hits
+            if isinstance(payload.get("hits"), list):
+                return len(payload.get("hits") or [])
+            # /multi-search -> results (sum hits)
+            if isinstance(payload.get("results"), list):
+                total = 0
+                for item in payload.get("results") or []:
+                    if isinstance(item, dict) and isinstance(item.get("hits"), list):
+                        total += len(item.get("hits") or [])
+                return total
+    except Exception:
+        return 0
+    return 0
 
 def _parse_allowed(raw: Optional[str]) -> List[str]:
     """Parse comma/whitespace/newline separated index names."""
@@ -109,6 +171,36 @@ def _parse_allowed(raw: Optional[str]) -> List[str]:
 
 
 ENV_ALLOWED_INDEXES: List[str] = [s.lower() for s in _parse_allowed(_ENV_ALLOWED_RAW)]
+
+
+# ------------------------------
+# Request helpers (logging)
+# ------------------------------
+
+def _current_request() -> Optional[Request]:
+    try:
+        req = get_http_request()
+        if req is None:
+            return None
+        return cast(Request, req)
+    except Exception:
+        return None
+
+
+def _remote_ip(req: Optional[Request]) -> Optional[str]:
+    if req is None:
+        return None
+    try:
+        # Prefer X-Forwarded-For if present (first hop)
+        xff = req.headers.get("x-forwarded-for") or req.headers.get("X-Forwarded-For")
+        if xff:
+            return xff.split(",")[0].strip()
+        client = getattr(req, "client", None)
+        if client and getattr(client, "host", None):
+            return client.host
+    except Exception:
+        return None
+    return None
 
 
 # ------------------------------
@@ -211,12 +303,9 @@ def _request_allowed_indexes() -> Optional[Set[str]]:
       - set() / set(values) if provided (possibly empty)
     """
     try:
-        req = get_http_request()
-
+        req = _current_request()
         if req is None:
             return None
-
-        req = cast(Request, req)
     except Exception:
         return None
 
@@ -224,11 +313,20 @@ def _request_allowed_indexes() -> Optional[Set[str]]:
         return None
 
     raw = req.query_params.get("allowed_indexes", "")
-
-    return set(
+    parsed = set(
         s.lower()
         for s in _parse_allowed(raw)
     )
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "request.allowed_indexes parsed",
+            extra={
+                "remote_ip": _remote_ip(req),
+                "raw": raw,
+                "parsed": sorted(parsed),
+            },
+        )
+    return parsed
 
 
 def _request_collections() -> Optional[Set[str]]:
@@ -237,12 +335,9 @@ def _request_collections() -> Optional[Set[str]]:
     destination names included by these collections, according to shared config.
     """
     try:
-        req = get_http_request()
-
+        req = _current_request()
         if req is None:
             return None
-
-        req = cast(Request, req)
     except Exception:
         return None
 
@@ -267,6 +362,16 @@ def _request_collections() -> Optional[Set[str]]:
                 if isinstance(d, str):
                     dests.add(d.lower())
 
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "request.collection parsed",
+            extra={
+                "remote_ip": _remote_ip(req),
+                "raw": raw,
+                "names": names,
+                "destinations": sorted(dests),
+            },
+        )
     return dests
 
 
@@ -304,6 +409,20 @@ def _effective_allowed_indexes() -> Optional[Set[str]]:
             base = req_set
         else:
             base = base.intersection(req_set)
+
+    # Debug log computed allowlist
+    req = _current_request()
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "request.effective_allowed_indexes",
+            extra={
+                "remote_ip": _remote_ip(req),
+                "env_ceiling": None if env_set is None else sorted(env_set),
+                "collections": None if coll_set is None else sorted(coll_set),
+                "allowed_indexes_param": None if req_set is None else sorted(req_set),
+                "effective": None if base is None else sorted(base),
+            },
+        )
 
     return base
 
@@ -379,6 +498,56 @@ async def lifespan(_: FastMCP):
         ),
     )
 
+    # Startup information logging
+    try:
+        dest_keys = sorted((DESTINATIONS_META or {}).keys()) if isinstance(DESTINATIONS_META, dict) else []
+        coll_keys = sorted((COLLECTIONS_META or {}).keys()) if isinstance(COLLECTIONS_META, dict) else []
+
+        logger.info(
+            "startup.meili_mcp",
+            extra={
+                "meili_host": MEILISEARCH_HOST,
+                "auth_header": MEILI_AUTH_HEADER,
+                "files_root": FILES_ROOT,
+            },
+        )
+
+        logger.info(
+            "startup.limits",
+            extra={
+                "MAX_SEARCH_LIMIT": MAX_SEARCH_LIMIT,
+                "MAX_LIST_INDEXES_LIMIT": MAX_LIST_INDEXES_LIMIT,
+                "MAX_Q_LEN": MAX_Q_LEN,
+                "MAX_FILE_BYTES": MAX_FILE_BYTES,
+            },
+        )
+
+        logger.info(
+            "startup.allowlist",
+            extra={
+                "env_allowed_indexes": ENV_ALLOWED_INDEXES or None,
+            },
+        )
+
+        logger.info(
+            "startup.destinations",
+            extra={
+                "count": len(dest_keys),
+                "names": dest_keys,
+            },
+        )
+
+        logger.info(
+            "startup.collections",
+            extra={
+                "count": len(coll_keys),
+                "names": coll_keys,
+            },
+        )
+    except Exception:
+        # Don't fail startup due to logging
+        pass
+
     try:
         yield
     finally:
@@ -390,7 +559,6 @@ async def lifespan(_: FastMCP):
 mcp = FastMCP(
     "meilisearch-mcp",
     lifespan=lifespan,
-    stateless_http=True,
     instructions=(
         "This server provides a Meilisearch-backed user memory corpus.\n"
         "Workflow:\n"
@@ -484,7 +652,18 @@ async def meili_indexes_resource(limit: int = 200, offset: int = 0) -> Dict[str,
     offset = _clamp_int(offset, 0, 10_000_000)
 
     c = await _client()
-
+    req = _current_request()
+    eff = _effective_allowed_indexes()
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "request.meili_indexes",
+            extra={
+                "remote_ip": _remote_ip(req),
+                "limit": limit,
+                "offset": offset,
+                "effective_allowed": None if eff is None else sorted(eff),
+            },
+        )
     r = await c.get(
         "/indexes",
         params={
@@ -496,6 +675,15 @@ async def meili_indexes_resource(limit: int = 200, offset: int = 0) -> Dict[str,
     r.raise_for_status()
 
     data = r.json()
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "response.meili_indexes",
+            extra={
+                "remote_ip": _remote_ip(req),
+                "bytes": _meili_bytes(r),
+                "result_count": _meili_result_count(data),
+            },
+        )
     allowed = _effective_allowed_indexes()
 
     if isinstance(data, dict):
@@ -561,6 +749,20 @@ async def meili_search_resource(uid: str, q: str, limit: int = 20, offset: int =
     q = _clean_q(q)
 
     c = await _client()
+    req = _current_request()
+    eff = _effective_allowed_indexes()
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "request.meili_search_resource",
+            extra={
+                "remote_ip": _remote_ip(req),
+                "uid": uid,
+                "q_len": len(q or ""),
+                "limit": limit,
+                "offset": offset,
+                "effective_allowed": None if eff is None else sorted(eff),
+            },
+        )
 
     r = await c.post(
         f"/indexes/{uid}/search",
@@ -574,6 +776,16 @@ async def meili_search_resource(uid: str, q: str, limit: int = 20, offset: int =
     r.raise_for_status()
 
     data = r.json()
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "response.meili_search_resource",
+            extra={
+                "remote_ip": _remote_ip(req),
+                "uid": uid,
+                "bytes": _meili_bytes(r),
+                "result_count": _meili_result_count(data),
+            },
+        )
 
     if isinstance(data, dict):
         data.setdefault("uid", uid)
@@ -606,6 +818,7 @@ async def meili_search_resource(uid: str, q: str, limit: int = 20, offset: int =
     annotations={"readOnlyHint": True, "idempotentHint": True},
 )
 async def files_resource(path: str, encoding: str = "utf-8", max_bytes: int = 500_000) -> Dict[str, Any]:
+    req = _current_request()
     if not _is_allowed_path(path):
         return {
             "ok": False,
@@ -647,7 +860,17 @@ async def files_resource(path: str, encoding: str = "utf-8", max_bytes: int = 50
 
     try:
         text = data.decode(encoding)
-
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "response.files_resource",
+                extra={
+                    "remote_ip": _remote_ip(req),
+                    "path": path,
+                    "size": len(data),
+                    "truncated": truncated,
+                    "encoding": encoding,
+                },
+            )
         return {
             "ok": True,
             "path": target,
@@ -657,6 +880,17 @@ async def files_resource(path: str, encoding: str = "utf-8", max_bytes: int = 50
             "content": text,
         }
     except UnicodeDecodeError:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "response.files_resource",
+                extra={
+                    "remote_ip": _remote_ip(req),
+                    "path": path,
+                    "size": len(data),
+                    "truncated": truncated,
+                    "encoding": "base64",
+                },
+            )
         return {
             "ok": True,
             "path": target,
@@ -686,6 +920,18 @@ async def list_document_indexes(limit: int = 200, offset: int = 0) -> ToolResult
     offset = _clamp_int(offset, 0, 10_000_000)
 
     c = await _client()
+    req = _current_request()
+    eff = _effective_allowed_indexes()
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "request.list_document_indexes",
+            extra={
+                "remote_ip": _remote_ip(req),
+                "limit": limit,
+                "offset": offset,
+                "effective_allowed": None if eff is None else sorted(eff),
+            },
+        )
 
     r = await c.get(
         "/indexes",
@@ -698,6 +944,15 @@ async def list_document_indexes(limit: int = 200, offset: int = 0) -> ToolResult
     r.raise_for_status()
 
     data = r.json()
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "response.list_document_indexes",
+            extra={
+                "remote_ip": _remote_ip(req),
+                "bytes": _meili_bytes(r),
+                "result_count": _meili_result_count(data),
+            },
+        )
     allowed = _effective_allowed_indexes()
 
     if not isinstance(data, dict):
@@ -774,6 +1029,20 @@ async def search_documents(uid: str, q: str, limit: int = 20, offset: int = 0) -
     }
 
     c = await _client()
+    req = _current_request()
+    eff = _effective_allowed_indexes()
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "request.search_documents",
+            extra={
+                "remote_ip": _remote_ip(req),
+                "uid": uid,
+                "q_len": len(q or ""),
+                "limit": limit,
+                "offset": offset,
+                "effective_allowed": None if eff is None else sorted(eff),
+            },
+        )
 
     try:
         r = await c.post(
@@ -784,6 +1053,16 @@ async def search_documents(uid: str, q: str, limit: int = 20, offset: int = 0) -
         r.raise_for_status()
 
         data = r.json()
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "response.search_documents",
+                extra={
+                    "remote_ip": _remote_ip(req),
+                    "uid": uid,
+                    "bytes": _meili_bytes(r),
+                    "result_count": _meili_result_count(data),
+                },
+            )
 
         if isinstance(data, dict):
             data.setdefault("ok", True)
@@ -800,6 +1079,16 @@ async def search_documents(uid: str, q: str, limit: int = 20, offset: int = 0) -
         )
 
     except httpx.HTTPStatusError as e:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "error.search_documents.http",
+                extra={
+                    "remote_ip": _remote_ip(req),
+                    "uid": uid,
+                    "status": e.response.status_code,
+                    "bytes": _meili_bytes(e.response),
+                },
+            )
         return _deny(
             "Meilisearch HTTP error",
             uid=uid,
@@ -808,6 +1097,7 @@ async def search_documents(uid: str, q: str, limit: int = 20, offset: int = 0) -
         )
 
     except Exception as e:
+        logger.exception("error.search_documents.exception", extra={"uid": uid, "remote_ip": _remote_ip(req)})
         return _deny(
             "Request failed",
             uid=uid,
@@ -823,7 +1113,27 @@ async def search_all_documents(queries: List[Dict[str, Any]]) -> ToolResult:
     Filters out disallowed indexUid entries based on the effective allowlist.
     If everything is disallowed, returns ok=false with a hint to call list_document_indexes().
     """
+    req = _current_request()
     allowed = _effective_allowed_indexes()
+    if logger.isEnabledFor(logging.DEBUG):
+        # Summarize queries without content
+        summary = [
+            {
+                "indexUid": (q.get("indexUid") or q.get("indexuid") or q.get("uid")),
+                "q_len": len((q.get("q") or "")) if isinstance(q, dict) else 0,
+                "limit": q.get("limit"),
+                "offset": q.get("offset"),
+            }
+            for q in (queries or []) if isinstance(q, dict)
+        ]
+        logger.debug(
+            "request.search_all_documents",
+            extra={
+                "remote_ip": _remote_ip(req),
+                "queries": summary,
+                "effective_allowed": None if allowed is None else sorted(allowed),
+            },
+        )
 
     if allowed is not None and len(allowed) == 0:
         return _deny(
@@ -884,6 +1194,16 @@ async def search_all_documents(queries: List[Dict[str, Any]]) -> ToolResult:
     r.raise_for_status()
 
     data = r.json()
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "response.search_all_documents",
+            extra={
+                "remote_ip": _remote_ip(req),
+                "bytes": _meili_bytes(r),
+                "result_count": _meili_result_count(data),
+                "disallowed": disallowed,
+            },
+        )
 
     if isinstance(data, dict):
         data.setdefault(
@@ -923,6 +1243,7 @@ async def get_document_file(path: str) -> ToolResult:
       - Blocks path traversal + symlink escape (resolved path must remain under FILES_ROOT).
       - Caps file size (MCP_MAX_FILE_BYTES); returns truncated content when exceeded.
     """
+    req = _current_request()
     if not _is_allowed_path(path):
         return _deny(
             "Folder not allowed for this request.",
@@ -959,7 +1280,17 @@ async def get_document_file(path: str) -> ToolResult:
 
         try:
             text = data.decode("utf-8")
-
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "response.get_document_file",
+                    extra={
+                        "remote_ip": _remote_ip(req),
+                        "path": path,
+                        "size": len(data),
+                        "truncated": truncated,
+                        "encoding": "utf-8",
+                    },
+                )
             return MCPData(
                 ok=True,
                 path=target,
@@ -969,6 +1300,17 @@ async def get_document_file(path: str) -> ToolResult:
                 content=text,
             )
         except UnicodeDecodeError:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "response.get_document_file",
+                    extra={
+                        "remote_ip": _remote_ip(req),
+                        "path": path,
+                        "size": len(data),
+                        "truncated": truncated,
+                        "encoding": "base64",
+                    },
+                )
             return MCPData(
                 ok=True,
                 path=target,
@@ -979,6 +1321,7 @@ async def get_document_file(path: str) -> ToolResult:
             )
 
     except Exception as e:
+        logger.exception("error.get_document_file.exception", extra={"remote_ip": _remote_ip(req), "path": path})
         return _deny(
             "File read failed.",
             requested=path,
@@ -996,6 +1339,7 @@ def main() -> None:
 
     mcp.run(
         transport="http",
+        stateless_http=True,
         host=host,
         port=port,
     )
