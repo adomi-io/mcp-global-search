@@ -79,8 +79,6 @@ MEILISEARCH_MASTER_KEY = (os.getenv("MEILISEARCH_MASTER_KEY") or "").strip()
 MEILI_AUTH_HEADER = (os.getenv("MEILI_AUTH_HEADER", "X-Meili-API-Key") or "X-Meili-API-Key").strip()
 
 # ENV ceiling allowlist:
-# - empty => all indexes allowed
-# - non-empty => only these allowed
 _ENV_ALLOWED_RAW = os.getenv("MEILISEARCH_ALLOWED_INDEXES", "")
 
 # Safety/perf knobs
@@ -143,12 +141,14 @@ def _collections_for_uid(uid: str) -> List[Dict[str, Any]]:
 
 def _augment_index_item(item: Dict[str, Any]) -> Dict[str, Any]:
     uid = (item.get("uid") or item.get("UID") or item.get("Uid") or "").strip()
+
     if not uid:
         return item
+
     dest_meta = (DESTINATIONS_META or {}).get(uid, {}) if isinstance(DESTINATIONS_META, dict) else {}
+
     if dest_meta:
         item.setdefault("destination", {})
-        # Do not overwrite standard meili keys; nest under 'destination'
         item["destination"].update(dest_meta)
     cols = _collections_for_uid(uid)
     if cols:
@@ -238,8 +238,10 @@ def _request_collections() -> Optional[Set[str]]:
     """
     try:
         req = get_http_request()
+
         if req is None:
             return None
+
         req = cast(Request, req)
     except Exception:
         return None
@@ -249,18 +251,22 @@ def _request_collections() -> Optional[Set[str]]:
 
     raw = req.query_params.get("collection", "")
     names = [s for s in _parse_allowed(raw)]
+
     if not names:
         return set()
 
     # Map collection names -> destinations
     dests: Set[str] = set()
+
     for nm in names:
         meta = (COLLECTIONS_META or {}).get(nm)
         if isinstance(meta, dict):
             ds = meta.get("destinations") or []
+
             for d in ds:
                 if isinstance(d, str):
                     dests.add(d.lower())
+
     return dests
 
 
@@ -284,6 +290,7 @@ def _effective_allowed_indexes() -> Optional[Set[str]]:
     # Next: collections restriction (if provided)
     coll_set = _request_collections()
     base: Optional[Set[str]] = env_set
+
     if coll_set is not None:
         if base is None:
             base = coll_set
