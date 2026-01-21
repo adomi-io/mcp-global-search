@@ -140,9 +140,11 @@ def _meili_result_count(payload: Any) -> int:
             # /indexes -> results
             if isinstance(payload.get("results"), list):
                 return len(payload.get("results") or [])
+
             # /search -> hits
             if isinstance(payload.get("hits"), list):
                 return len(payload.get("hits") or [])
+
             # /multi-search -> results (sum hits)
             if isinstance(payload.get("results"), list):
                 total = 0
@@ -180,8 +182,10 @@ ENV_ALLOWED_INDEXES: List[str] = [s.lower() for s in _parse_allowed(_ENV_ALLOWED
 def _current_request() -> Optional[Request]:
     try:
         req = get_http_request()
+
         if req is None:
             return None
+
         return cast(Request, req)
     except Exception:
         return None
@@ -304,8 +308,10 @@ def _request_allowed_indexes() -> Optional[Set[str]]:
     """
     try:
         req = _current_request()
+
         if req is None:
             return None
+
     except Exception:
         return None
 
@@ -313,19 +319,21 @@ def _request_allowed_indexes() -> Optional[Set[str]]:
         return None
 
     raw = req.query_params.get("allowed_indexes", "")
+
     parsed = set(
         s.lower()
         for s in _parse_allowed(raw)
     )
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(
-            "request.allowed_indexes parsed",
-            extra={
-                "remote_ip": _remote_ip(req),
-                "raw": raw,
-                "parsed": sorted(parsed),
-            },
-        )
+
+    logger.info(
+        "request.allowed_indexes parsed",
+        extra={
+            "remote_ip": _remote_ip(req),
+            "raw": raw,
+            "parsed": sorted(parsed),
+        },
+    )
+    
     return parsed
 
 
@@ -336,6 +344,7 @@ def _request_collections() -> Optional[Set[str]]:
     """
     try:
         req = _current_request()
+
         if req is None:
             return None
     except Exception:
@@ -362,16 +371,16 @@ def _request_collections() -> Optional[Set[str]]:
                 if isinstance(d, str):
                     dests.add(d.lower())
 
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(
-            "request.collection parsed",
-            extra={
-                "remote_ip": _remote_ip(req),
-                "raw": raw,
-                "names": names,
-                "destinations": sorted(dests),
-            },
-        )
+    logger.info(
+        "request.collection parsed",
+        extra={
+            "remote_ip": _remote_ip(req),
+            "raw": raw,
+            "names": names,
+            "destinations": sorted(dests),
+        },
+    )
+
     return dests
 
 
@@ -390,10 +399,13 @@ def _effective_allowed_indexes() -> Optional[Set[str]]:
       - If ENV is empty (unrestricted), query param becomes the restriction when present.
     """
     env_set: Optional[Set[str]]
-    env_set = set(ENV_ALLOWED_INDEXES) if ENV_ALLOWED_INDEXES else None
 
-    # Next: collections restriction (if provided)
+    env_set = set(ENV_ALLOWED_INDEXES) \
+        if ENV_ALLOWED_INDEXES \
+        else None
+
     coll_set = _request_collections()
+
     base: Optional[Set[str]] = env_set
 
     if coll_set is not None:
@@ -402,8 +414,8 @@ def _effective_allowed_indexes() -> Optional[Set[str]]:
         else:
             base = base.intersection(coll_set)
 
-    # Finally: explicit allowed_indexes parameter
     req_set = _request_allowed_indexes()
+
     if req_set is not None:
         if base is None:
             base = req_set
@@ -412,17 +424,17 @@ def _effective_allowed_indexes() -> Optional[Set[str]]:
 
     # Debug log computed allowlist
     req = _current_request()
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(
-            "request.effective_allowed_indexes",
-            extra={
-                "remote_ip": _remote_ip(req),
-                "env_ceiling": None if env_set is None else sorted(env_set),
-                "collections": None if coll_set is None else sorted(coll_set),
-                "allowed_indexes_param": None if req_set is None else sorted(req_set),
-                "effective": None if base is None else sorted(base),
-            },
-        )
+
+    logger.debug(
+        "request.effective_allowed_indexes",
+        extra={
+            "remote_ip": _remote_ip(req),
+            "env_ceiling": None if env_set is None else sorted(env_set),
+            "collections": None if coll_set is None else sorted(coll_set),
+            "allowed_indexes_param": None if req_set is None else sorted(req_set),
+            "effective": None if base is None else sorted(base),
+        },
+    )
 
     return base
 
@@ -652,18 +664,20 @@ async def meili_indexes_resource(limit: int = 200, offset: int = 0) -> Dict[str,
     offset = _clamp_int(offset, 0, 10_000_000)
 
     c = await _client()
+
     req = _current_request()
     eff = _effective_allowed_indexes()
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(
-            "request.meili_indexes",
-            extra={
-                "remote_ip": _remote_ip(req),
-                "limit": limit,
-                "offset": offset,
-                "effective_allowed": None if eff is None else sorted(eff),
-            },
-        )
+
+    logger.info(
+        "request.meili_indexes",
+        extra={
+            "remote_ip": _remote_ip(req),
+            "limit": limit,
+            "offset": offset,
+            "effective_allowed": None if eff is None else sorted(eff),
+        },
+    )
+
     r = await c.get(
         "/indexes",
         params={
@@ -675,15 +689,16 @@ async def meili_indexes_resource(limit: int = 200, offset: int = 0) -> Dict[str,
     r.raise_for_status()
 
     data = r.json()
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(
-            "response.meili_indexes",
-            extra={
-                "remote_ip": _remote_ip(req),
-                "bytes": _meili_bytes(r),
-                "result_count": _meili_result_count(data),
-            },
-        )
+
+    logger.info(
+        "response.meili_indexes",
+        extra={
+            "remote_ip": _remote_ip(req),
+            "bytes": _meili_bytes(r),
+            "result_count": _meili_result_count(data),
+        },
+    )
+
     allowed = _effective_allowed_indexes()
 
     if isinstance(data, dict):
@@ -751,18 +766,18 @@ async def meili_search_resource(uid: str, q: str, limit: int = 20, offset: int =
     c = await _client()
     req = _current_request()
     eff = _effective_allowed_indexes()
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(
-            "request.meili_search_resource",
-            extra={
-                "remote_ip": _remote_ip(req),
-                "uid": uid,
-                "q_len": len(q or ""),
-                "limit": limit,
-                "offset": offset,
-                "effective_allowed": None if eff is None else sorted(eff),
-            },
-        )
+
+    logger.info(
+        "request.meili_search_resource",
+        extra={
+            "remote_ip": _remote_ip(req),
+            "uid": uid,
+            "q_len": len(q or ""),
+            "limit": limit,
+            "offset": offset,
+            "effective_allowed": None if eff is None else sorted(eff),
+        },
+    )
 
     r = await c.post(
         f"/indexes/{uid}/search",
@@ -776,16 +791,16 @@ async def meili_search_resource(uid: str, q: str, limit: int = 20, offset: int =
     r.raise_for_status()
 
     data = r.json()
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(
-            "response.meili_search_resource",
-            extra={
-                "remote_ip": _remote_ip(req),
-                "uid": uid,
-                "bytes": _meili_bytes(r),
-                "result_count": _meili_result_count(data),
-            },
-        )
+
+    logger.info(
+        "response.meili_search_resource",
+        extra={
+            "remote_ip": _remote_ip(req),
+            "uid": uid,
+            "bytes": _meili_bytes(r),
+            "result_count": _meili_result_count(data),
+        },
+    )
 
     if isinstance(data, dict):
         data.setdefault("uid", uid)
@@ -860,17 +875,18 @@ async def files_resource(path: str, encoding: str = "utf-8", max_bytes: int = 50
 
     try:
         text = data.decode(encoding)
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "response.files_resource",
-                extra={
-                    "remote_ip": _remote_ip(req),
-                    "path": path,
-                    "size": len(data),
-                    "truncated": truncated,
-                    "encoding": encoding,
-                },
-            )
+
+        logger.info(
+            "response.files_resource",
+            extra={
+                "remote_ip": _remote_ip(req),
+                "path": path,
+                "size": len(data),
+                "truncated": truncated,
+                "encoding": encoding,
+            },
+        )
+
         return {
             "ok": True,
             "path": target,
@@ -880,17 +896,17 @@ async def files_resource(path: str, encoding: str = "utf-8", max_bytes: int = 50
             "content": text,
         }
     except UnicodeDecodeError:
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "response.files_resource",
-                extra={
-                    "remote_ip": _remote_ip(req),
-                    "path": path,
-                    "size": len(data),
-                    "truncated": truncated,
-                    "encoding": "base64",
-                },
-            )
+        logger.info(
+            "response.files_resource",
+            extra={
+                "remote_ip": _remote_ip(req),
+                "path": path,
+                "size": len(data),
+                "truncated": truncated,
+                "encoding": "base64",
+            },
+        )
+
         return {
             "ok": True,
             "path": target,
@@ -922,16 +938,16 @@ async def list_document_indexes(limit: int = 200, offset: int = 0) -> ToolResult
     c = await _client()
     req = _current_request()
     eff = _effective_allowed_indexes()
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(
-            "request.list_document_indexes",
-            extra={
-                "remote_ip": _remote_ip(req),
-                "limit": limit,
-                "offset": offset,
-                "effective_allowed": None if eff is None else sorted(eff),
-            },
-        )
+
+    logger.info(
+        "request.list_document_indexes",
+        extra={
+            "remote_ip": _remote_ip(req),
+            "limit": limit,
+            "offset": offset,
+            "effective_allowed": None if eff is None else sorted(eff),
+        },
+    )
 
     r = await c.get(
         "/indexes",
@@ -944,15 +960,16 @@ async def list_document_indexes(limit: int = 200, offset: int = 0) -> ToolResult
     r.raise_for_status()
 
     data = r.json()
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(
-            "response.list_document_indexes",
-            extra={
-                "remote_ip": _remote_ip(req),
-                "bytes": _meili_bytes(r),
-                "result_count": _meili_result_count(data),
-            },
-        )
+
+    logger.info(
+        "response.list_document_indexes",
+        extra={
+            "remote_ip": _remote_ip(req),
+            "bytes": _meili_bytes(r),
+            "result_count": _meili_result_count(data),
+        },
+    )
+
     allowed = _effective_allowed_indexes()
 
     if not isinstance(data, dict):
@@ -1031,18 +1048,18 @@ async def search_documents(uid: str, q: str, limit: int = 20, offset: int = 0) -
     c = await _client()
     req = _current_request()
     eff = _effective_allowed_indexes()
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(
-            "request.search_documents",
-            extra={
-                "remote_ip": _remote_ip(req),
-                "uid": uid,
-                "q_len": len(q or ""),
-                "limit": limit,
-                "offset": offset,
-                "effective_allowed": None if eff is None else sorted(eff),
-            },
-        )
+
+    logger.info(
+        "request.search_documents",
+        extra={
+            "remote_ip": _remote_ip(req),
+            "uid": uid,
+            "q_len": len(q or ""),
+            "limit": limit,
+            "offset": offset,
+            "effective_allowed": None if eff is None else sorted(eff),
+        },
+    )
 
     try:
         r = await c.post(
@@ -1053,16 +1070,16 @@ async def search_documents(uid: str, q: str, limit: int = 20, offset: int = 0) -
         r.raise_for_status()
 
         data = r.json()
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "response.search_documents",
-                extra={
-                    "remote_ip": _remote_ip(req),
-                    "uid": uid,
-                    "bytes": _meili_bytes(r),
-                    "result_count": _meili_result_count(data),
-                },
-            )
+
+        logger.info(
+            "response.search_documents",
+            extra={
+                "remote_ip": _remote_ip(req),
+                "uid": uid,
+                "bytes": _meili_bytes(r),
+                "result_count": _meili_result_count(data),
+            },
+        )
 
         if isinstance(data, dict):
             data.setdefault("ok", True)
@@ -1079,16 +1096,15 @@ async def search_documents(uid: str, q: str, limit: int = 20, offset: int = 0) -
         )
 
     except httpx.HTTPStatusError as e:
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "error.search_documents.http",
-                extra={
-                    "remote_ip": _remote_ip(req),
-                    "uid": uid,
-                    "status": e.response.status_code,
-                    "bytes": _meili_bytes(e.response),
-                },
-            )
+        logger.info(
+            "error.search_documents.http",
+            extra={
+                "remote_ip": _remote_ip(req),
+                "uid": uid,
+                "status": e.response.status_code,
+                "bytes": _meili_bytes(e.response),
+            },
+        )
         return _deny(
             "Meilisearch HTTP error",
             uid=uid,
@@ -1115,25 +1131,25 @@ async def search_all_documents(queries: List[Dict[str, Any]]) -> ToolResult:
     """
     req = _current_request()
     allowed = _effective_allowed_indexes()
-    if logger.isEnabledFor(logging.DEBUG):
-        # Summarize queries without content
-        summary = [
-            {
-                "indexUid": (q.get("indexUid") or q.get("indexuid") or q.get("uid")),
-                "q_len": len((q.get("q") or "")) if isinstance(q, dict) else 0,
-                "limit": q.get("limit"),
-                "offset": q.get("offset"),
-            }
-            for q in (queries or []) if isinstance(q, dict)
-        ]
-        logger.debug(
-            "request.search_all_documents",
-            extra={
-                "remote_ip": _remote_ip(req),
-                "queries": summary,
-                "effective_allowed": None if allowed is None else sorted(allowed),
-            },
-        )
+    # Summarize queries without content
+    summary = [
+        {
+            "indexUid": (q.get("indexUid") or q.get("indexuid") or q.get("uid")),
+            "q_len": len((q.get("q") or "")) if isinstance(q, dict) else 0,
+            "limit": q.get("limit"),
+            "offset": q.get("offset"),
+        }
+        for q in (queries or []) if isinstance(q, dict)
+    ]
+
+    logger.info(
+        "request.search_all_documents",
+        extra={
+            "remote_ip": _remote_ip(req),
+            "queries": summary,
+            "effective_allowed": None if allowed is None else sorted(allowed),
+        },
+    )
 
     if allowed is not None and len(allowed) == 0:
         return _deny(
@@ -1194,16 +1210,16 @@ async def search_all_documents(queries: List[Dict[str, Any]]) -> ToolResult:
     r.raise_for_status()
 
     data = r.json()
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(
-            "response.search_all_documents",
-            extra={
-                "remote_ip": _remote_ip(req),
-                "bytes": _meili_bytes(r),
-                "result_count": _meili_result_count(data),
-                "disallowed": disallowed,
-            },
-        )
+
+    logger.info(
+        "response.search_all_documents",
+        extra={
+            "remote_ip": _remote_ip(req),
+            "bytes": _meili_bytes(r),
+            "result_count": _meili_result_count(data),
+            "disallowed": disallowed,
+        },
+    )
 
     if isinstance(data, dict):
         data.setdefault(
@@ -1280,17 +1296,18 @@ async def get_document_file(path: str) -> ToolResult:
 
         try:
             text = data.decode("utf-8")
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "response.get_document_file",
-                    extra={
-                        "remote_ip": _remote_ip(req),
-                        "path": path,
-                        "size": len(data),
-                        "truncated": truncated,
-                        "encoding": "utf-8",
-                    },
-                )
+
+            logger.info(
+                "response.get_document_file",
+                extra={
+                    "remote_ip": _remote_ip(req),
+                    "path": path,
+                    "size": len(data),
+                    "truncated": truncated,
+                    "encoding": "utf-8",
+                },
+            )
+
             return MCPData(
                 ok=True,
                 path=target,
@@ -1300,17 +1317,17 @@ async def get_document_file(path: str) -> ToolResult:
                 content=text,
             )
         except UnicodeDecodeError:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "response.get_document_file",
-                    extra={
-                        "remote_ip": _remote_ip(req),
-                        "path": path,
-                        "size": len(data),
-                        "truncated": truncated,
-                        "encoding": "base64",
-                    },
-                )
+            logger.info(
+                "response.get_document_file",
+                extra={
+                    "remote_ip": _remote_ip(req),
+                    "path": path,
+                    "size": len(data),
+                    "truncated": truncated,
+                    "encoding": "base64",
+                },
+            )
+
             return MCPData(
                 ok=True,
                 path=target,
